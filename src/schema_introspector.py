@@ -1,12 +1,13 @@
 """Schema drift defense — maps drifted column names at runtime.
 
-The green agent provides drift_mappings in the entropy field, making this
-straightforward: we build a bidirectional mapping between canonical and
-drifted column names.
+The green agent applies hardcoded text-replacement drift to column names
+in the prompt and required_context. drift_mappings in entropy are ALWAYS
+EMPTY in the current green agent implementation.
 
-When drift_mappings are NOT provided, we fall back to parsing the
-required_context to discover actual column names and fuzzy-match them
-back to canonical schema.
+Our strategy:
+1. Use known drift mappings (hardcoded from green agent source analysis)
+2. If drift_level is known, apply the corresponding reverse mapping
+3. Fallback: parse required_context to discover drifted column names
 """
 
 import json
@@ -22,12 +23,16 @@ class SchemaIntrospector:
     """
     Detects and maps drifted column names at runtime.
 
-    Strategy:
-    1. Read entropy.drift_level and drift_mappings from incoming task
-    2. If drift_mappings provided: use them directly
-    3. If drift_level != "none" but no mappings: parse context to discover columns
-    4. Build canonical_name → drifted_name mapping
-    5. All downstream reasoning uses drifted names
+    The green agent hardcodes drift via text replacement (_apply_schema_drift).
+    drift_mappings in entropy are always empty.
+
+    Known drift maps (from green agent source):
+    - low:    Status→CaseStatus, OwnerId→AssignedTo, AccountId→CustomerRef
+    - medium: Status→StatusCode, OwnerId→AssignedAgent, AccountId→ClientId,
+              ContactId→PersonRef, Subject→Title, Description→Details
+    - high:   Status→st_code, OwnerId→own_ref, AccountId→acct_id,
+              ContactId→cont_ref, Subject→subj, Description→desc,
+              Priority→pri_level, CreatedDate→create_dt, CaseNumber→ticket_num
     """
 
     def __init__(self, canonical_schema: dict):
@@ -42,6 +47,40 @@ class SchemaIntrospector:
                 # Also store just the column name for simpler lookups
                 self._all_canonical_columns[col] = table_name
 
+    # Known drift mappings from green agent source code (_apply_schema_drift)
+    # These are column-level replacements applied across ALL tables
+    KNOWN_DRIFT_MAPS: dict[str, dict[str, str]] = {
+        "low": {
+            "Status": "CaseStatus",
+            "OwnerId": "AssignedTo",
+            "AccountId": "CustomerRef",
+        },
+        "medium": {
+            "Status": "StatusCode",
+            "OwnerId": "AssignedAgent",
+            "AccountId": "ClientId",
+            "ContactId": "PersonRef",
+            "Subject": "Title",
+            "Description": "Details",
+        },
+        "high": {
+            "Status": "st_code",
+            "OwnerId": "own_ref",
+            "AccountId": "acct_id",
+            "ContactId": "cont_ref",
+            "Subject": "subj",
+            "Description": "desc",
+            "Priority": "pri_level",
+            "CreatedDate": "create_dt",
+            "CaseNumber": "ticket_num",
+        },
+    }
+
+    # Reverse maps: drifted_name → canonical_name (for undoing drift in context)
+    REVERSE_DRIFT_MAPS: dict[str, dict[str, str]] = {
+        level: {v: k for k, v in maps.items()}
+        for level, maps in KNOWN_DRIFT_MAPS.items() if isinstance(maps, dict)
+    }
     def introspect(self, task: dict) -> dict[str, dict[str, str]]:
         """
         Returns a per-table column mapping dict:
@@ -60,9 +99,14 @@ class SchemaIntrospector:
             return self._identity_mapping()
 
         # Check if drift_mappings are provided by the green agent
+        # (Currently always empty, but handle for future-proofing)
         drift_mappings = entropy.get("drift_mappings", [])
         if drift_mappings:
             return self._build_mapping_from_provided(drift_mappings)
+
+        # Use known drift maps from green agent source analysis
+        if drift_level in self.KNOWN_DRIFT_MAPS:
+            return self._build_mapping_from_known_drift(drift_level)
 
         # Fallback: parse required_context to discover drifted columns
         context = task.get("required_context", "")
@@ -120,6 +164,31 @@ class SchemaIntrospector:
             if table in mapping and original in mapping[table]:
                 mapping[table][original] = drifted
                 logger.info(f"Drift: {table}.{original} → {drifted}")
+
+        self._mapping_cache = mapping
+        return mapping
+
+    def _build_mapping_from_known_drift(
+        self, drift_level: str
+    ) -> dict[str, dict[str, str]]:
+        """
+        Build mapping using hardcoded drift maps from green agent source.
+
+        The green agent applies column-name text replacement across the
+        entire prompt and context. The same canonical column name in ANY
+        table gets the same drifted name.
+        """
+        mapping = self._identity_mapping()
+        known = self.KNOWN_DRIFT_MAPS.get(drift_level, {})
+
+        for table_name in mapping:
+            for canonical_col in list(mapping[table_name].keys()):
+                if canonical_col in known:
+                    mapping[table_name][canonical_col] = known[canonical_col]
+                    logger.info(
+                        f"Known drift ({drift_level}): "
+                        f"{table_name}.{canonical_col} → {known[canonical_col]}"
+                    )
 
         self._mapping_cache = mapping
         return mapping
