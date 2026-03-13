@@ -1,0 +1,151 @@
+"""LLM-based structured reasoning engine over CRM context data.
+
+Despite the name "sql_generator", this module does NOT execute SQL against
+a live database. The green agent provides CRM data as text in required_context,
+and this module uses the LLM to reason over that data to extract answers.
+
+The "SQL generation" metaphor is maintained from the spec, but the actual
+implementation is prompt-based reasoning with schema awareness.
+"""
+
+import logging
+import os
+
+import yaml
+
+logger = logging.getLogger(__name__)
+
+
+class SQLGenerator:
+    """
+    Schema-aware reasoning engine that generates answers from CRM context data.
+
+    Uses the LLM with schema mapping (including drifted names) to:
+    1. Understand which data fields are relevant (handling drift)
+    2. Perform the right aggregation/lookup/comparison
+    3. Return a precise answer
+
+    CRITICAL RULES:
+    1. ALWAYS inform the LLM about drifted column names
+    2. Instruct the LLM to extract ONLY the needed information
+    3. Keep reasoning focused on the task category
+    4. Validate that the answer is grounded in the data
+    """
+
+    def __init__(self, llm_client):
+        self._llm = llm_client
+        self._prompts = self._load_prompts()
+
+    def _load_prompts(self) -> dict:
+        """Load prompt templates from config/prompts.yaml."""
+        prompts_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "config", "prompts.yaml"
+        )
+        try:
+            with open(prompts_path) as f:
+                return yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            logger.warning("prompts.yaml not found, using inline prompts")
+            return {}
+
+    async def generate(
+        self,
+        task: dict,
+        schema_info: str,
+        filtered_context: str,
+    ) -> str:
+        """
+        Use LLM to reason over the context data and extract an answer.
+
+        Args:
+            task: The full task dict with prompt, category, persona, etc.
+            schema_info: Human-readable schema description (with drifted names)
+            filtered_context: Cleaned context with distractors removed
+
+        Returns:
+            The raw answer string from the LLM
+        """
+        prompt_template = self._prompts.get("reasoning", self._default_prompt())
+
+        formatted_prompt = prompt_template.format(
+            schema_info=schema_info,
+            filtered_context=filtered_context,
+            task_category=task.get("task_category", ""),
+            prompt=task.get("prompt", ""),
+            persona=task.get("persona", ""),
+        )
+
+        logger.info(
+            f"Generating answer for category={task.get('task_category')}, "
+            f"prompt_length={len(formatted_prompt)}"
+        )
+
+        response = await self._llm.call(
+            formatted_prompt,
+            temperature=0.0,
+            max_tokens=1024,
+        )
+
+        return response.strip()
+
+    async def generate_fuzzy(
+        self,
+        task: dict,
+        filtered_context: str,
+    ) -> str:
+        """
+        Generate a fuzzy/synthesized answer for knowledge_qa tasks.
+
+        Uses a different prompt template optimized for natural language synthesis.
+        """
+        prompt_template = self._prompts.get("fuzzy_answer", self._default_fuzzy_prompt())
+
+        formatted_prompt = prompt_template.format(
+            filtered_context=filtered_context,
+            prompt=task.get("prompt", ""),
+            persona=task.get("persona", ""),
+        )
+
+        response = await self._llm.call(
+            formatted_prompt,
+            temperature=0.1,  # Slightly more creative for fuzzy answers
+            max_tokens=1024,
+        )
+
+        return response.strip()
+
+    def _default_prompt(self) -> str:
+        return (
+            "You are a CRM data analyst. Analyze the provided CRM data context to answer the user's question.\n\n"
+            "## Database Schema (canonical column names → actual names in data):\n"
+            "{schema_info}\n\n"
+            "## Context Data:\n"
+            "{filtered_context}\n\n"
+            "## Task:\n"
+            "Category: {task_category}\n"
+            "Question: {prompt}\n"
+            "Persona: {persona}\n\n"
+            "## Rules:\n"
+            "- Analyze ONLY the data provided in Context Data above\n"
+            "- If column names differ from canonical names, use the ACTUAL names present in the data\n"
+            "- Focus on answering the specific question — do NOT provide extra commentary\n"
+            "- Return ONLY the precise answer value, nothing else\n"
+            "- If the data is insufficient to answer, respond with 'insufficient data'\n"
+            "- Count carefully, double-check any aggregations\n"
+        )
+
+    def _default_fuzzy_prompt(self) -> str:
+        return (
+            "You are a CRM knowledge expert. Synthesize a clear, grounded answer from the provided data.\n\n"
+            "## Context Data:\n"
+            "{filtered_context}\n\n"
+            "## Question:\n"
+            "{prompt}\n\n"
+            "## Persona:\n"
+            "{persona}\n\n"
+            "## Rules:\n"
+            "- Answer the question using ONLY information found in the context data\n"
+            "- Every claim MUST be traceable to a specific data point in the context\n"
+            "- Be concise and direct\n"
+            "- If the data doesn't contain enough information, say 'insufficient data'\n"
+        )
