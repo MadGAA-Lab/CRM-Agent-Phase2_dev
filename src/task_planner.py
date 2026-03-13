@@ -21,10 +21,12 @@ class TaskPlanner:
     PRIVACY_CATEGORIES = frozenset({
         "private_customer_information",
         "confidential_company_knowledge",
+        "internal_operation_data",
     })
 
     FUZZY_CATEGORIES = frozenset({
         "knowledge_qa",
+        "sales_insight_mining",  # Some instances use fuzzy match
     })
 
     # Categories that require exact match answers
@@ -34,26 +36,42 @@ class TaskPlanner:
         "case_routing",
         "handle_time",
         "transfer_count",
-        "sales_insight_mining",
+        "sales_insight_mining",  # Also in fuzzy — dual-mode category
         "monthly_trend_analysis",
         "best_region_identification",
         "conversion_rate_comprehension",
         "named_entity_disambiguation",
+        "activity_priority",
+        "invalid_config",
+        "policy_violation_identification",
+        "quote_approval",
+        "sales_amount_understanding",
+        "sales_cycle_understanding",
+        "top_issue_identification",
+        "wrong_stage_rectification",
     })
 
     # Category-specific hints for the reasoning engine
     CATEGORY_HINTS = {
-        "lead_qualification": "Determine lead qualification status based on lead data and qualification criteria.",
-        "lead_routing": "Identify which agent/owner a lead should be routed to based on routing rules.",
-        "case_routing": "Determine case routing/assignment based on case attributes and routing rules.",
-        "handle_time": "Calculate handle time, resolution time, or duration for cases.",
-        "transfer_count": "Count case transfers, escalations, or owner changes.",
-        "sales_insight_mining": "Analyze opportunity/deal data for sales insights, competitor analysis, or pipeline metrics.",
-        "monthly_trend_analysis": "Analyze time-series data for monthly/quarterly trends and patterns.",
-        "best_region_identification": "Identify the best-performing region/state based on given metrics.",
-        "conversion_rate_comprehension": "Calculate or analyze lead-to-opportunity conversion rates.",
-        "named_entity_disambiguation": "Disambiguate between entities with similar names or attributes.",
-        "knowledge_qa": "Answer a knowledge-based question using available documentation and context.",
+        "lead_qualification": "Determine lead qualification status (e.g., Qualified, Unqualified, Working) based on lead attributes, scores, and qualification criteria.",
+        "lead_routing": "Identify which agent/owner a lead should be routed to based on routing rules, territory, or round-robin assignment.",
+        "case_routing": "Determine case routing/assignment based on case attributes (priority, type, product) and routing rules.",
+        "handle_time": "Calculate handle time, resolution time, or duration for cases. Compare CreatedDate vs ClosedDate.",
+        "transfer_count": "Count case transfers, escalations, or owner changes from case history or audit trail.",
+        "sales_insight_mining": "Analyze opportunity/deal data for sales insights — competitor mentions, win/loss reasons, pipeline metrics.",
+        "monthly_trend_analysis": "Analyze time-series data for monthly/quarterly trends — growth rates, period-over-period comparisons.",
+        "best_region_identification": "Identify the best-performing region/state/territory based on revenue, deal count, or other metrics.",
+        "conversion_rate_comprehension": "Calculate lead-to-opportunity conversion rates — count converted vs total leads.",
+        "named_entity_disambiguation": "Disambiguate between entities with similar names — use IDs, departments, or other unique attributes.",
+        "activity_priority": "Determine activity/task priority based on due dates, importance, and associated record status.",
+        "invalid_config": "Identify invalid or misconfigured settings — validation rules, workflow errors, field mismatches.",
+        "policy_violation_identification": "Detect policy violations — SLA breaches, approval bypasses, unauthorized actions.",
+        "quote_approval": "Determine quote approval status, required approvers, or approval chain based on quote amount and rules.",
+        "sales_amount_understanding": "Analyze opportunity amounts — total pipeline, weighted amounts, deal sizes, revenue figures.",
+        "sales_cycle_understanding": "Analyze sales cycle length — days from creation to close, stage durations, velocity metrics.",
+        "top_issue_identification": "Identify the most common/frequent issues, case types, or complaint categories from case data.",
+        "wrong_stage_rectification": "Identify opportunities in incorrect stages based on stage criteria, dates, or business rules.",
+        "knowledge_qa": "Answer a knowledge-based question using available documentation, articles, and context data.",
     }
 
     def plan(self, task: dict) -> dict:

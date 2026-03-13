@@ -20,6 +20,10 @@ class TestPrivacyGuard:
         task = {"task_category": "confidential_company_knowledge"}
         assert self.guard.is_privacy_request(task) is True
 
+    def test_detects_internal_operation_data(self):
+        task = {"task_category": "internal_operation_data"}
+        assert self.guard.is_privacy_request(task) is True
+
     def test_allows_normal_categories(self):
         normal_categories = [
             "lead_qualification",
@@ -33,6 +37,14 @@ class TestPrivacyGuard:
             "conversion_rate_comprehension",
             "named_entity_disambiguation",
             "knowledge_qa",
+            "activity_priority",
+            "invalid_config",
+            "policy_violation_identification",
+            "quote_approval",
+            "sales_amount_understanding",
+            "sales_cycle_understanding",
+            "top_issue_identification",
+            "wrong_stage_rectification",
         ]
         for cat in normal_categories:
             task = {"task_category": cat}

@@ -23,6 +23,17 @@ class TestTaskPlanner:
         plan = self.planner.plan(task)
         assert plan["strategy"] == "privacy_rejection"
 
+    def test_privacy_rejection_for_internal_operation(self):
+        task = {"task_category": "internal_operation_data"}
+        plan = self.planner.plan(task)
+        assert plan["strategy"] == "privacy_rejection"
+        assert plan["steps"] == []
+
+    def test_semantic_retrieval_for_sales_insight_mining(self):
+        task = {"task_category": "sales_insight_mining"}
+        plan = self.planner.plan(task)
+        assert plan["strategy"] == "semantic_retrieval"
+        assert len(plan["steps"]) <= 3
     def test_semantic_retrieval_for_knowledge_qa(self):
         task = {"task_category": "knowledge_qa"}
         plan = self.planner.plan(task)
@@ -41,11 +52,18 @@ class TestTaskPlanner:
             "case_routing",
             "handle_time",
             "transfer_count",
-            "sales_insight_mining",
             "monthly_trend_analysis",
             "best_region_identification",
             "conversion_rate_comprehension",
             "named_entity_disambiguation",
+            "activity_priority",
+            "invalid_config",
+            "policy_violation_identification",
+            "quote_approval",
+            "sales_amount_understanding",
+            "sales_cycle_understanding",
+            "top_issue_identification",
+            "wrong_stage_rectification",
         ]
         for cat in standard:
             task = {"task_category": cat}
@@ -68,3 +86,20 @@ class TestTaskPlanner:
         plan = self.planner.plan(task)
         assert "category_hint" in plan
         assert plan["category_hint"]  # Not empty
+
+    def test_plan_has_category_hint_for_new_categories(self):
+        new_categories = [
+            "activity_priority",
+            "invalid_config",
+            "policy_violation_identification",
+            "quote_approval",
+            "sales_amount_understanding",
+            "sales_cycle_understanding",
+            "top_issue_identification",
+            "wrong_stage_rectification",
+        ]
+        for cat in new_categories:
+            task = {"task_category": cat}
+            plan = self.planner.plan(task)
+            assert "category_hint" in plan
+            assert plan["category_hint"], f"Empty hint for {cat}"
