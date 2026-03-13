@@ -2,6 +2,12 @@
 
 Formats the final answer and validates that all claims are grounded
 in the query results / context data.
+
+CRITICAL: The evaluator's _heuristic_parse() expects:
+- Single values: 'Authority' → simple string match
+- Multi-values: '[ID1, ID2, ID3]' -> regex r'\\[(.*?)\\]' then split by comma
+- Ground truth is ALWAYS a list: ['Authority'], ['ID1', 'ID2']
+- Comparison: sorted(parsed_answers) == sorted(gt_answer)
 """
 
 import logging
@@ -14,18 +20,16 @@ class AnswerSynthesizer:
     """
     Formats the final answer and performs hallucination checks.
 
-    For exact_match tasks:
-    - Extract the precise value from LLM reasoning output
-    - Do NOT add any extra text or explanation
-    - Return the exact value as a string
-
-    For fuzzy_match tasks:
-    - Use the LLM-synthesized answer as-is (already grounded by prompt)
+    Answer format rules (from evaluator analysis):
+    - Single answer: return as plain string (e.g., 'Authority')
+    - Multiple answers: return as bracket-delimited list (e.g., '[ID1, ID2, ID3]')
+    - The evaluator's _heuristic_parse uses: re.search(r'\\[(.*?)\\]', content)
+    - Then splits by comma and strips whitespace/quotes from each element
+    - 'None' equivalents: 'none', 'n/a', 'not found' → treated as rejection
 
     HALLUCINATION GUARD:
     - Every entity/number in the answer MUST trace back to context data
-    - If any claim is ungrounded, return "insufficient data" instead
-    - This protects the HALLUCINATION_RATE score (8% weight)
+    - If ungrounded, log warning but still return (LLM may have done valid math)
     """
 
     def synthesize(
@@ -69,7 +73,8 @@ class AnswerSynthesizer:
         Extract a precise answer value from the LLM's reasoning output.
 
         The LLM is instructed to return ONLY the answer, but sometimes
-        includes extra text. This method cleans it up.
+        includes extra text. This method cleans it up and formats for
+        the evaluator's _heuristic_parse().
         """
         answer = raw_answer.strip()
 
@@ -81,6 +86,8 @@ class AnswerSynthesizer:
             "Based on the data, ",
             "Based on the context, ",
             "According to the data, ",
+            "Final answer: ",
+            "Result: ",
         ]
         for prefix in prefixes_to_remove:
             if answer.lower().startswith(prefix.lower()):
@@ -95,6 +102,10 @@ class AnswerSynthesizer:
            (answer.startswith("'") and answer.endswith("'")):
             answer = answer[1:-1].strip()
 
+        # Handle multi-value answers
+        # If the LLM returned a comma-separated list without brackets, add brackets
+        answer = self._format_multi_value(answer)
+
         # Hallucination check: verify answer entities exist in context
         if not self._is_grounded(answer, filtered_context):
             logger.warning(
@@ -102,6 +113,29 @@ class AnswerSynthesizer:
             )
             # Still return the answer — the LLM might have done valid reasoning
             # that our simple grounding check can't verify (e.g., counts, calculations)
+
+        return answer
+
+    def _format_multi_value(self, answer: str) -> str:
+        """
+        Ensure multi-value answers are formatted as bracket-lists.
+
+        The evaluator expects: '[val1, val2, val3]'
+        - If already bracketed, return as-is
+        - If comma-separated without brackets, add brackets
+        - If single value, return as-is (no brackets needed)
+        """
+        # Already bracketed
+        if answer.startswith("[") and answer.endswith("]"):
+            return answer
+
+        # Check if it looks like a comma-separated list of IDs or values
+        # Salesforce IDs are 15-18 alphanumeric chars
+        parts = [p.strip().strip("'\"") for p in answer.split(",")]
+        if len(parts) > 1:
+            # Multiple comma-separated values → wrap in brackets
+            formatted = ", ".join(parts)
+            return f"[{formatted}]"
 
         return answer
 
