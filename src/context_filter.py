@@ -1,7 +1,16 @@
-"""Context rot filtering — removes distractor records from required_context.
+"""Context rot filtering — strips injected noise notes from required_context.
 
-At different rot levels, the green agent injects semantically plausible but
-irrelevant distractor records. This module identifies and removes them.
+Discovery from green agent source analysis: context rot is NOT fake records.
+It's just appended text notes like:
+  '[Note: Some records may have been updated recently. Verify timestamps.]'
+  '[System Notice: Database migration in progress. Some field names may vary.]'
+
+Low rot: 1 note appended
+Medium rot: 2 notes appended
+High rot: 3 notes appended
+
+Strategy: Strip these known noise patterns, then pass through existing
+heuristic filtering for any remaining structure issues.
 """
 
 import json
@@ -13,59 +22,69 @@ logger = logging.getLogger(__name__)
 
 class ContextFilter:
     """
-    Filters irrelevant distractor records from required_context.
+    Filters noise from required_context.
 
-    Strategy:
-    1. Read entropy.rot_level from incoming task
-    2. If rot_level != "none":
-       a. Parse required_context into individual records/sections
-       b. Score each record for relevance to the task prompt
-       c. Discard low-relevance records
-    3. Pass only high-relevance records to downstream components
-
-    Uses a combination of:
-    - Entity-ID matching: check if record IDs are referenced in the prompt
-    - Keyword overlap: measure word overlap between record and prompt
-    - LLM-based filtering (optional, for high rot levels)
+    Primary: Strip appended rot notes (bracketed [Note:...] and [System Notice:...] patterns)
+    Secondary: Heuristic relevance filtering for multi-section contexts
+    Tertiary: LLM-based filtering for high rot levels (if LLM available)
     """
+
+    # Known rot note patterns from green agent source (_apply_context_rot)
+    ROT_PATTERNS = [
+        r'\[Note:[^\]]*\]',
+        r'\[System Notice:[^\]]*\]',
+        r'\[Advisory:[^\]]*\]',
+        r'\[Warning:[^\]]*\]',
+        r'\[Info:[^\]]*\]',
+        r'\[Update:[^\]]*\]',
+    ]
 
     def __init__(self, llm_client=None):
         self._llm = llm_client
 
     async def filter(self, task: dict) -> str:
-        """Returns cleaned required_context with distractors removed."""
+        """Returns cleaned required_context with rot notes and distractors removed."""
         rot_level = task.get("entropy", {}).get("rot_level", "none")
         context = task.get("required_context", "")
 
         if rot_level == "none" or not context:
             return context
 
+        # Step 1: Strip known rot note patterns
+        cleaned = self._strip_rot_notes(context)
+
+        # Step 2: For multi-section contexts, apply heuristic filtering
         prompt = task.get("prompt", "")
         category = task.get("task_category", "")
-
-        # Parse context into sections
-        sections = self._parse_sections(context)
+        sections = self._parse_sections(cleaned)
 
         if len(sections) <= 1:
-            # Only one section — can't filter, return as-is
-            return context
+            return cleaned.strip()
 
-        # For low/medium rot: use heuristic filtering
-        if rot_level in ("low", "medium"):
-            relevant = self._heuristic_filter(sections, prompt, category)
-        else:
-            # For high rot: use LLM-based filtering if available
-            if self._llm:
-                relevant = await self._llm_filter(sections, prompt, category)
-            else:
-                relevant = self._heuristic_filter(sections, prompt, category)
+        # Heuristic filtering for remaining sections
+        relevant = self._heuristic_filter(sections, prompt, category)
 
         if not relevant:
-            # If filtering removed everything, return original context
-            logger.warning("Context filter removed all sections — returning original")
-            return context
+            logger.warning("Context filter removed all sections — returning cleaned context")
+            return cleaned.strip()
 
         return "\n\n".join(relevant)
+
+    def _strip_rot_notes(self, context: str) -> str:
+        """
+        Strip known rot note patterns from context.
+
+        The green agent appends notes like:
+          [Note: Some records may have been updated recently. Verify timestamps.]
+          [System Notice: Database migration in progress. Some field names may vary.]
+        """
+        cleaned = context
+        for pattern in self.ROT_PATTERNS:
+            cleaned = re.sub(pattern, "", cleaned)
+
+        # Also strip any trailing whitespace/newlines left by removal
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        return cleaned.strip()
 
     def _parse_sections(self, context: str) -> list[str]:
         """
@@ -219,6 +238,14 @@ class ContextFilter:
             "conversion_rate_comprehension": ["conversion", "rate", "converted", "lead", "opportunity"],
             "named_entity_disambiguation": ["name", "entity", "disambiguat", "identify", "person", "company"],
             "knowledge_qa": ["knowledge", "article", "guide", "faq", "documentation", "help"],
+            "activity_priority": ["activity", "task", "priority", "due", "date", "overdue", "urgent"],
+            "invalid_config": ["config", "invalid", "validation", "rule", "error", "field", "setting"],
+            "policy_violation_identification": ["policy", "violation", "sla", "breach", "compliance", "approval"],
+            "quote_approval": ["quote", "approval", "approver", "amount", "discount", "price"],
+            "sales_amount_understanding": ["amount", "revenue", "pipeline", "total", "sum", "deal", "value"],
+            "sales_cycle_understanding": ["cycle", "days", "duration", "stage", "velocity", "close"],
+            "top_issue_identification": ["issue", "top", "common", "frequent", "type", "category", "complaint"],
+            "wrong_stage_rectification": ["stage", "wrong", "incorrect", "opportunity", "rectif", "criteria"],
         }
         return category_kw_map.get(category, [])
 
