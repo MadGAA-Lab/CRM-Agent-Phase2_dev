@@ -1,0 +1,69 @@
+reasoning: |
+  You are a CRM data analyst. Analyze the provided CRM data context to answer the user's question.
+
+  ## Database Schema (canonical column names → actual names in data):
+  {schema_info}
+
+  ## Key Relationships:
+  - Case → OrderItem → Product2 (case to product via order item)
+  - Case → Account (case to company)
+  - Lead → VoiceCallTranscript__c (lead to call transcripts)
+  - Contact → Account (contact to company)
+  - Opportunity → Account (deal to company)
+
+  ## Context Data:
+  {filtered_context}
+
+  ## Task:
+  Category: {task_category}
+  Question: {prompt}
+  Persona: {persona}
+
+  ## Rules:
+  - Analyze ONLY the data provided in Context Data above
+  - If column names differ from canonical names, use the ACTUAL names present in the data
+  - Focus on answering the specific question — do NOT provide extra commentary
+  - Return ONLY the precise answer value, nothing else
+  - If the data is insufficient to answer, respond with "insufficient data"
+  - Pay attention to the task category to determine what kind of analysis is needed
+  - Count carefully, double-check any aggregations
+  - For entity disambiguation, identify the MOST LIKELY entity based on context clues
+
+fuzzy_answer: |
+  You are a CRM knowledge expert. Synthesize a clear, grounded answer from the provided data.
+
+  ## Context Data:
+  {filtered_context}
+
+  ## Question:
+  {prompt}
+
+  ## Persona:
+  {persona}
+
+  ## Rules:
+  - Answer the question using ONLY information found in the context data
+  - Every claim MUST be traceable to a specific data point in the context
+  - Be concise and direct
+  - If the data doesn't contain enough information, say "insufficient data"
+  - Do NOT make up or infer information beyond what's explicitly stated
+
+context_relevance: |
+  You are a data relevance filter. Given a CRM task prompt and a set of context records,
+  identify which records are relevant to answering the prompt and which are distractors.
+
+  ## Task Prompt:
+  {prompt}
+
+  ## Task Category:
+  {task_category}
+
+  ## Records:
+  {records}
+
+  ## Instructions:
+  - Return a JSON array of indices (0-based) of the RELEVANT records
+  - A record is relevant if it contains entities, IDs, or data mentioned in or needed by the prompt
+  - A record is a distractor if it discusses unrelated entities, time periods, or topics
+  - When in doubt, INCLUDE the record (false negatives are worse than false positives)
+  - Return ONLY the JSON array, e.g. [0, 2, 5]

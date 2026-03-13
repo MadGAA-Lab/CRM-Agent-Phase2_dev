@@ -1,0 +1,57 @@
+{
+  "tables": {
+    "Account": {
+      "columns": ["Id", "Name", "BillingState", "BillingCity", "BillingCountry", "Industry", "Type", "OwnerId", "CreatedDate"],
+      "primary_key": "Id",
+      "description": "Company/organization accounts"
+    },
+    "Contact": {
+      "columns": ["Id", "FirstName", "LastName", "Name", "Email", "Phone", "AccountId", "OwnerId", "Title", "Department", "CreatedDate"],
+      "primary_key": "Id",
+      "foreign_keys": {"AccountId": "Account.Id"},
+      "description": "Individual contacts linked to accounts"
+    },
+    "Lead": {
+      "columns": ["Id", "FirstName", "LastName", "Name", "Status", "OwnerId", "Company", "Email", "Phone", "LeadSource", "Rating", "ConvertedAccountId", "ConvertedContactId", "ConvertedDate", "CreatedDate"],
+      "primary_key": "Id",
+      "description": "Sales leads and prospects"
+    },
+    "Case": {
+      "columns": ["Id", "CaseNumber", "Subject", "Description", "Status", "Priority", "Origin", "Type", "AccountId", "ContactId", "OwnerId", "OrderItemId__c", "CreatedDate", "ClosedDate", "IsClosed"],
+      "primary_key": "Id",
+      "foreign_keys": {"AccountId": "Account.Id", "ContactId": "Contact.Id", "OrderItemId__c": "OrderItem.Id"},
+      "description": "Customer support cases"
+    },
+    "Opportunity": {
+      "columns": ["Id", "Name", "StageName", "Amount", "CloseDate", "Probability", "AccountId", "OwnerId", "Type", "LeadSource", "ForecastCategory", "IsClosed", "IsWon", "CreatedDate"],
+      "primary_key": "Id",
+      "foreign_keys": {"AccountId": "Account.Id"},
+      "description": "Sales opportunities/deals"
+    },
+    "OrderItem": {
+      "columns": ["Id", "OrderId", "Product2Id", "Quantity", "UnitPrice", "TotalPrice", "Description"],
+      "primary_key": "Id",
+      "foreign_keys": {"Product2Id": "Product2.Id"},
+      "description": "Line items within orders"
+    },
+    "Product2": {
+      "columns": ["Id", "Name", "ProductCode", "Description", "Family", "IsActive"],
+      "primary_key": "Id",
+      "description": "Product catalog"
+    },
+    "VoiceCallTranscript__c": {
+      "columns": ["Id", "Body__c", "LeadId__c", "Duration__c", "CallType__c", "CreatedDate"],
+      "primary_key": "Id",
+      "foreign_keys": {"LeadId__c": "Lead.Id"},
+      "description": "Call transcripts linked to leads"
+    }
+  },
+  "relationships": [
+    {"from": "Case.OrderItemId__c", "to": "OrderItem.Id", "description": "Case to order item (then to product)"},
+    {"from": "OrderItem.Product2Id", "to": "Product2.Id", "description": "Order item to product"},
+    {"from": "Case.AccountId", "to": "Account.Id", "description": "Case to company"},
+    {"from": "Lead.Id", "to": "VoiceCallTranscript__c.LeadId__c", "description": "Lead to call transcripts"},
+    {"from": "Contact.AccountId", "to": "Account.Id", "description": "Contact to company"},
+    {"from": "Opportunity.AccountId", "to": "Account.Id", "description": "Deal to company"}
+  ]
+}
