@@ -135,17 +135,20 @@ class Agent:
         # ── L2: Plan ──
         plan = self.planner.plan(task)
         strategy = plan["strategy"]
+        category_hint = plan.get("category_hint", "")
         logger.info(f"Strategy: {strategy}, steps: {plan['steps']}")
 
         # ── L3a + L5: Execute with retry ──
         async def execute_task(task, schema_info=None, filtered_context=None, **_kw):
             if strategy == "semantic_retrieval":
                 raw_answer = await self.sql_generator.generate_fuzzy(
-                    task, filtered_context
+                    task, schema_info, filtered_context,
+                    category_hint=category_hint,
                 )
             else:
                 raw_answer = await self.sql_generator.generate(
-                    task, schema_info, filtered_context
+                    task, schema_info, filtered_context,
+                    category_hint=category_hint,
                 )
 
             # ── L4: Synthesize + hallucination guard ──
