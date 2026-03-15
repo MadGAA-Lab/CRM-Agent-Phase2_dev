@@ -37,6 +37,9 @@ class ContextFilter:
         r'\[Warning:[^\]]*\]',
         r'\[Info:[^\]]*\]',
         r'\[Update:[^\]]*\]',
+        r'\[Notice:[^\]]*\]',
+        r'\[Alert:[^\]]*\]',
+        r'\[Caution:[^\]]*\]',
     ]
 
     def __init__(self, llm_client=None):
