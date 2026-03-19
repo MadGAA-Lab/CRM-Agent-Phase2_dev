@@ -150,9 +150,9 @@ docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-xxx crm-purple-agent
 
 | 變數 | 用途 | 必要 |
 |------|------|------|
-| `ANTHROPIC_API_KEY` | Claude Sonnet 4 (主要 LLM) | 至少一個 |
-| `NEBIUS_API_KEY` | Llama 3.3 70B via Nebius (省錢) | 選配 |
-| `OPENAI_API_KEY` | GPT-4o Fallback | 選配 |
+| `ANTHROPIC_API_KEY` | 啟用 Anthropic 模型（見模型配置）| 至少一個 |
+| `NEBIUS_API_KEY` | 啟用 Nebius Llama 3.3 70B（見模型配置）| 選配 |
+| `OPENAI_API_KEY` | 啟用 OpenAI 模型（見模型配置）| 選配 |
 
 ### 模型配置（可選）
 
