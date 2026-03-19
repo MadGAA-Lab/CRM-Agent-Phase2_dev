@@ -6,7 +6,7 @@ Berkeley RDI **AgentX–AgentBeats Phase 2** 競賽用 CRM agent。由 Entropic 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    A2A Protocol (port 9010)              │
+│                    A2A Protocol (port 9009)              │
 │            JSON-RPC over HTTP + Agent Card              │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
@@ -88,7 +88,7 @@ Berkeley RDI **AgentX–AgentBeats Phase 2** 競賽用 CRM agent。由 Entropic 
 
 ```
 src/
-├─ server.py              # A2A server (port 9010) + agent card
+├─ server.py              # A2A server (port 9009) + agent card
 ├─ executor.py             # A2A request handler
 ├─ agent.py                # 5-layer pipeline orchestrator
 ├─ privacy_guard.py        # Rule-based privacy rejection (3 categories)
@@ -143,7 +143,7 @@ uv run pytest tests/ --ignore=tests/test_agent.py -v
 
 ```bash
 docker build -t crm-purple-agent .
-docker run -p 9010:9010 -e ANTHROPIC_API_KEY=sk-xxx crm-purple-agent
+docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-xxx crm-purple-agent
 ```
 
 ## 環境變數

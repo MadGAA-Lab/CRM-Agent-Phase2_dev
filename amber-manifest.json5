@@ -1,14 +1,15 @@
 {
   manifest_version: "0.1.0",
 
-  // TODO: Declare all config your agent needs from the deployer
-  // Use secret: true for sensitive values like API keys
+  // API keys required by the CRM agent's LLM client
   config_schema: {
     type: "object",
     properties: {
-      my_api_key: { type: "string", secret: true },
+      anthropic_api_key: { type: "string", secret: true },
+      nebius_api_key: { type: "string", secret: true },
+      openai_api_key: { type: "string", secret: true },
     },
-    required: ["my_api_key"],
+    required: ["anthropic_api_key"],
     additionalProperties: false,
   },
 
@@ -19,18 +20,18 @@
 
   // Runtime configuration
   program: {
-    // TODO: Replace with your docker image
-    image: "ghcr.io/<your-username>/<your-repo-name>:latest",
-    entrypoint: "uv run python src/server.py --host 0.0.0.0 --port 9010",
+    image: "ghcr.io/madgaa-lab/crm-agent-phase2_dev:latest",
+    entrypoint: "uv run python src/server.py --host 0.0.0.0 --port 9009",
 
-    // TODO: Pass config values as environment variables
     env: {
-      MY_API_KEY: "${config.my_api_key}",
+      ANTHROPIC_API_KEY: "${config.anthropic_api_key}",
+      NEBIUS_API_KEY: "${config.nebius_api_key}",
+      OPENAI_API_KEY: "${config.openai_api_key}",
     },
 
     network: {
       endpoints: [
-        { name: "a2a_endpoint", port: 9010 }, // ensure port matches your entrypoint
+        { name: "a2a_endpoint", port: 9009 }, // ensure port matches your entrypoint
       ],
     },
   },

@@ -71,7 +71,7 @@ The agent must expose `GET /.well-known/agent-card.json`:
 {
   "name": "MadGAA CRM Agent",
   "description": "CRM agent with runtime schema drift adaptation and context rot filtering for Entropic CRMArena",
-  "url": "http://0.0.0.0:9010/",
+  "url": "http://0.0.0.0:9009/",
   "version": "1.0.0",
   "capabilities": {
     "streaming": false,
@@ -816,10 +816,10 @@ COPY src/ src/
 COPY config/ config/
 
 # Expose port
-EXPOSE 9010
+EXPOSE 9009
 
 # Start the A2A server
-CMD ["uv", "run", "src/server.py", "--host", "0.0.0.0", "--port", "9010"]
+CMD ["uv", "run", "src/server.py", "--host", "0.0.0.0", "--port", "9009"]
 ```
 
 ### Build & Push
@@ -859,7 +859,7 @@ uv run src/server.py --host 127.0.0.1 --port 9009
 cd crm-purple-agent
 uv sync
 export ANTHROPIC_API_KEY=your_key  # or NEBIUS_API_KEY or OPENAI_API_KEY
-uv run src/server.py --host 127.0.0.1 --port 9010
+uv run src/server.py --host 127.0.0.1 --port 9009
 ```
 
 ### Run a test (1 task, no drift/rot)
@@ -878,7 +878,7 @@ curl -X POST http://127.0.0.1:9009/ \
         "role": "user",
         "parts": [{
           "kind": "text",
-          "text": "{\"participants\": {\"agent\": \"http://127.0.0.1:9010/\"}, \"config\": {\"task_limit\": 1, \"drift_level\": \"none\", \"rot_level\": \"none\", \"org_type\": \"b2b\"}}"
+          "text": "{\"participants\": {\"agent\": \"http://127.0.0.1:9009/\"}, \"config\": {\"task_limit\": 1, \"drift_level\": \"none\", \"rot_level\": \"none\", \"org_type\": \"b2b\"}}"
         }]
       }
     }
@@ -962,7 +962,7 @@ OPENAI_API_KEY=sk-...             # For GPT-4o (alternative)
 
 # Server config
 HOST=0.0.0.0
-PORT=9010
+PORT=9009
 ```
 
 ---
