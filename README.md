@@ -1,155 +1,115 @@
 # CRM Purple Agent — AgentX Phase 2
 
-Berkeley RDI **AgentX–AgentBeats Phase 2** 競賽用 CRM agent。由 Entropic CRMArena green agent 評測，處理 2,140 筆 CRM 任務（22 類別），支援 schema drift + context rot 對抗。
+A CRM agent for Berkeley RDI **AgentX–AgentBeats Phase 2** competition. Evaluated by the Entropic CRMArena green agent across 2,140 CRM tasks (22 categories) with schema drift and context rot resistance.
 
-## Agent 架構
+> 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    A2A Protocol (port 9009)              │
-│            JSON-RPC over HTTP + Agent Card              │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ┌─── L0: Task Parser ───────────────────────────────┐  │
-│  │  Parse incoming A2A message → extract CRM task    │  │
-│  │  (JSON with task_id, category, prompt, context)   │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── Privacy Guard ────┴────────────────────────────┐  │
-│  │  Rule-based, zero LLM calls                       │  │
-│  │  3 categories: private_customer_information,      │  │
-│  │  confidential_company_knowledge,                  │  │
-│  │  internal_operation_data → instant rejection      │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │ (non-privacy tasks)           │
-│  ┌─── L1: Schema Introspector ───────────────────────┐  │
-│  │  Detects & maps drifted column names              │  │
-│  │  Uses hardcoded green agent drift maps:           │  │
-│  │    low:    Status→CaseStatus, OwnerId→AssignedTo  │  │
-│  │    medium: Status→StatusCode, Subject→Title ...   │  │
-│  │    high:   Status→st_code, Subject→subj ...       │  │
-│  │  Fallback: fuzzy-match from context parsing       │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── L1: Context Filter ────────────────────────────┐  │
-│  │  Strips rot noise ([Note:...], [System Notice:])  │  │
-│  │  Heuristic relevance filtering for multi-section  │  │
-│  │  contexts (keyword overlap + entity matching)     │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── L2: Task Planner ─────────────────────────────┐  │
-│  │  Classifies into 3 strategies:                    │  │
-│  │    exact_query_match  (17 categories)             │  │
-│  │    semantic_retrieval (knowledge_qa,              │  │
-│  │                        sales_insight_mining)      │  │
-│  │    privacy_rejection  (3 categories)              │  │
-│  │  Returns category_hint for downstream prompting   │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── L3: SQL Generator (LLM Reasoning) ────────────┐  │
-│  │  Category-specific prompts (19 templates)         │  │
-│  │  Schema-aware: uses drifted column names          │  │
-│  │  Instructs LLM for bracket-list answer format     │  │
-│  │  Claude Sonnet 4 (primary) / Llama 3.3 / GPT-4o  │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── L4: Answer Synthesizer ────────────────────────┐  │
-│  │  Cleans LLM output (strips prefixes/quotes)       │  │
-│  │  Formats multi-value → [val1, val2, val3]         │  │
-│  │  Hallucination grounding check                    │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── L5: Error Recovery ────────────────────────────┐  │
-│  │  Max 2 retries with schema re-introspection       │  │
-│  │  Graceful "insufficient data" on persistent fail  │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                               │
-│  ┌─── Response Builder ─────────────────────────────┐  │
-│  │  {"task_id", "answer", "metrics": {tokens, ...}} │  │
-│  │  Returned as A2A TextPart artifact                │  │
-│  └───────────────────────────────────────────────────┘  │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
-
-## 評分維度 (7D Score)
-
-| 維度 | 權重 | 策略 |
-|------|------|------|
-| FUNCTIONAL | 30% | 精準的 category-specific prompts + answer formatting |
-| DRIFT_ADAPTATION | 20% | 硬編碼 green agent 的 drift mapping，不靠猜 |
-| TOKEN_EFFICIENCY | 12% | Privacy rejection 零 token；單次 LLM 呼叫 |
-| QUERY_EFFICIENCY | 12% | 無多餘 tool calls，一次完成 |
-| ERROR_RECOVERY | 8% | Max 2 retries + graceful degradation |
-| TRAJECTORY_EFFICIENCY | 10% | 回應含 "answer" key → green agent 不會繼續追問 |
-| HALLUCINATION | 8% | Grounding check + 只用 context 中的資料 |
-
-## 專案結構
+## Project Structure
 
 ```
 src/
 ├─ server.py              # A2A server (port 9009) + agent card
-├─ executor.py             # A2A request handler
-├─ agent.py                # 5-layer pipeline orchestrator
-├─ privacy_guard.py        # Rule-based privacy rejection (3 categories)
-├─ schema_introspector.py  # Drift mapping (hardcoded + fuzzy fallback)
-├─ context_filter.py       # Rot note stripping + heuristic filtering
-├─ task_planner.py         # Strategy classifier (22 categories)
-├─ sql_generator.py        # LLM reasoning with category-specific prompts
-├─ answer_synthesizer.py   # Answer formatting + hallucination guard
-├─ error_recovery.py       # Retry logic with re-introspection
-├─ llm_client.py           # Multi-backend LLM (Anthropic/Nebius/OpenAI)
-└─ messenger.py            # A2A messaging utilities
+├─ executor.py            # A2A request handler
+├─ agent.py               # 5-layer pipeline orchestrator
+├─ privacy_guard.py       # Rule-based privacy rejection (3 categories)
+├─ schema_introspector.py # Drift mapping (hardcoded + fuzzy fallback)
+├─ context_filter.py      # Rot note stripping + heuristic filtering
+├─ task_planner.py        # Strategy classifier (22 categories)
+├─ sql_generator.py       # LLM reasoning with category-specific prompts
+├─ answer_synthesizer.py  # Answer formatting + hallucination guard
+├─ error_recovery.py      # Retry logic with re-introspection
+├─ llm_client.py          # Multi-backend LLM (Anthropic / Nebius / OpenAI)
+└─ messenger.py           # A2A messaging utilities
 config/
-├─ schema.json             # Canonical CRM schema (8 tables, 6 relationships)
-└─ prompts.yaml            # 22 prompt templates (3 general + 19 category-specific)
+├─ schema.json            # Canonical CRM schema (8 tables, 6 relationships)
+└─ prompts.yaml           # 22 prompt templates (3 general + 19 category-specific)
 tests/
-├─ test_privacy.py         # Privacy guard tests (7 tests)
-├─ test_task_planner.py    # Task planner tests (11 tests)
-├─ test_introspector.py    # Schema introspector tests (6 tests)
-├─ test_context_filter.py  # Context filter tests (8 tests)
-└─ test_agent.py           # A2A conformance tests
+├─ test_privacy.py        # Privacy guard tests
+├─ test_task_planner.py   # Task planner tests
+├─ test_introspector.py   # Schema introspector tests
+├─ test_context_filter.py # Context filter tests
+└─ test_agent.py          # A2A conformance tests
+Dockerfile                    # Docker configuration
+pyproject.toml                # Python dependencies
+amber-manifest.json5          # Amber manifest
+.github/
+└─ workflows/
+   └─ test-and-publish.yml    # CI workflow
 ```
 
-## 22 Task Categories
+## Pipeline Architecture
 
-**Privacy Rejection (3)** — 零 LLM，直接拒絕:
-`private_customer_information`, `confidential_company_knowledge`, `internal_operation_data`
+The agent implements a 5-layer pipeline:
 
-**Exact Match (17)** — 精確值比對:
-`lead_qualification`, `lead_routing`, `case_routing`, `handle_time`, `transfer_count`,
-`monthly_trend_analysis`, `best_region_identification`, `conversion_rate_comprehension`,
-`named_entity_disambiguation`, `activity_priority`, `invalid_config`,
-`policy_violation_identification`, `quote_approval`, `sales_amount_understanding`,
-`sales_cycle_understanding`, `top_issue_identification`, `wrong_stage_rectification`
+| Layer | Component | Description |
+|---|---|---|
+| Privacy Guard | `privacy_guard.py` | Rule-based, zero LLM calls — instantly rejects 3 private categories |
+| L1 | `schema_introspector.py` | Detects & maps drifted column names (low / medium / high) |
+| L1 | `context_filter.py` | Strips rot noise, heuristic relevance filtering |
+| L2 | `task_planner.py` | Classifies task into `exact_query_match`, `semantic_retrieval`, or `privacy_rejection` |
+| L3 | `sql_generator.py` | Category-specific prompts with schema-aware LLM reasoning |
+| L4 | `answer_synthesizer.py` | Cleans output, formats multi-value answers, hallucination grounding |
+| L5 | `error_recovery.py` | Max 2 retries with schema re-introspection, graceful degradation |
 
-**Fuzzy Match (2)** — 語意比對:
-`knowledge_qa`, `sales_insight_mining`
+## Getting Started
 
-## 本地開發
+### Running Locally
 
 ```bash
-# 安裝依賴
+# Install dependencies
 uv sync
 
-# 啟動 agent
-ANTHROPIC_API_KEY=sk-xxx uv run src/server.py
+# Run the server (requires at least ANTHROPIC_API_KEY)
+ANTHROPIC_API_KEY=sk-ant-... uv run src/server.py
 
-# 執行測試
-uv run pytest tests/ --ignore=tests/test_agent.py -v
+# Run the server with all optional backends
+ANTHROPIC_API_KEY=sk-ant-... NEBIUS_API_KEY=... uv run src/server.py
 ```
 
-## Docker
+### Running with Docker
 
 ```bash
+# Build the image
 docker build -t crm-purple-agent .
-docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-xxx crm-purple-agent
+
+# Run the container
+docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-ant-... crm-purple-agent
 ```
 
-## 環境變數
+## Environment Variables
 
-| 變數 | 用途 | 必要 |
-|------|------|------|
-| `ANTHROPIC_API_KEY` | Claude Sonnet 4 (主要 LLM) | 至少一個 |
-| `NEBIUS_API_KEY` | Llama 3.3 70B via Nebius (省錢) | 選配 |
-| `OPENAI_API_KEY` | GPT-4o fallback | 選配 |
+| Variable | Purpose | Required |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Claude Sonnet 4 — primary LLM | At least one |
+| `NEBIUS_API_KEY` | Llama 3.3 70B via Nebius — cost-optimized context filtering | Optional |
+| `OPENAI_API_KEY` | GPT-4o — fallback | Optional |
+
+## Testing
+
+```bash
+# Install test dependencies
+uv sync --extra test
+
+# Run unit tests (no agent required)
+uv run pytest tests/ --ignore=tests/test_agent.py -v
+
+# Start the agent, then run A2A conformance tests
+uv run pytest --agent-url http://localhost:9009
+```
+
+## Publishing
+
+The repository includes a GitHub Actions workflow that automatically builds, tests, and publishes a Docker image to GitHub Container Registry.
+
+Add your API keys in **Settings → Secrets and variables → Actions → Repository secrets**.
+
+- **Push to `main`** → publishes `latest` tag:
+```
+ghcr.io/madgaa-lab/crm-agent-phase2_dev:latest
+```
+
+- **Create a git tag** (e.g. `git tag v1.0.0 && git push origin v1.0.0`) → publishes version tags:
+```
+ghcr.io/madgaa-lab/crm-agent-phase2_dev:1.0.0
+ghcr.io/madgaa-lab/crm-agent-phase2_dev:1
+```
