@@ -78,11 +78,25 @@ docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-ant-... crm-purple-agent
 
 ## Environment Variables
 
+### API Keys
+
 | Variable | Purpose | Required |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Claude Sonnet 4 — primary LLM | At least one |
 | `NEBIUS_API_KEY` | Llama 3.3 70B via Nebius — cost-optimized context filtering | Optional |
 | `OPENAI_API_KEY` | GPT-4o — fallback | Optional |
+
+### Model Configuration
+
+Default models are used when these are not set.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | Anthropic model for primary calls |
+| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | Anthropic model for cheap/fallback calls |
+| `LLM_NEBIUS_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Nebius model |
+| `LLM_OPENAI_MODEL` | `gpt-5.4` | OpenAI model for primary calls |
+| `LLM_OPENAI_CHEAP_MODEL` | `gpt-5.4-mini` | OpenAI model for cheap calls |
 
 ## Testing
 

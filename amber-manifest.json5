@@ -8,6 +8,12 @@
       anthropic_api_key: { type: "string", secret: true },
       nebius_api_key: { type: "string", secret: true },
       openai_api_key: { type: "string", secret: true },
+      // Optional: override default model names
+      llm_primary_model: { type: "string" },
+      llm_cheap_model: { type: "string" },
+      llm_nebius_model: { type: "string" },
+      llm_openai_model: { type: "string" },
+      llm_openai_cheap_model: { type: "string" },
     },
     required: ["anthropic_api_key"],
     additionalProperties: false,
@@ -27,6 +33,11 @@
       ANTHROPIC_API_KEY: "${config.anthropic_api_key}",
       NEBIUS_API_KEY: "${config.nebius_api_key}",
       OPENAI_API_KEY: "${config.openai_api_key}",
+      LLM_PRIMARY_MODEL: "${config.llm_primary_model}",
+      LLM_CHEAP_MODEL: "${config.llm_cheap_model}",
+      LLM_NEBIUS_MODEL: "${config.llm_nebius_model}",
+      LLM_OPENAI_MODEL: "${config.llm_openai_model}",
+      LLM_OPENAI_CHEAP_MODEL: "${config.llm_openai_cheap_model}",
     },
 
     network: {

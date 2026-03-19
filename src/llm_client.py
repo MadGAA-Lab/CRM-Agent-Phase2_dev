@@ -22,6 +22,13 @@ class LLMClient:
     - ANTHROPIC_API_KEY: For Claude models (primary)
     - NEBIUS_API_KEY: For Llama models via Nebius (cost-optimized)
     - OPENAI_API_KEY: For OpenAI models (fallback)
+
+    Model names can be overridden via environment variables:
+    - LLM_PRIMARY_MODEL:     Claude model for primary calls (default: claude-sonnet-4-6)
+    - LLM_CHEAP_MODEL:       Anthropic model for cheap calls (default: claude-haiku-4-5)
+    - LLM_NEBIUS_MODEL:      Nebius model (default: meta-llama/Llama-3.3-70B-Instruct)
+    - LLM_OPENAI_MODEL:      OpenAI model for primary calls (default: gpt-5.4)
+    - LLM_OPENAI_CHEAP_MODEL: OpenAI model for cheap calls (default: gpt-5.4-mini)
     """
 
     NEBIUS_BASE_URL = "https://api.studio.nebius.com/v1"
@@ -30,6 +37,13 @@ class LLMClient:
         self.anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
         self.nebius_key = os.environ.get("NEBIUS_API_KEY")
         self.openai_key = os.environ.get("OPENAI_API_KEY")
+
+        # Model configuration via env vars
+        self.primary_model = os.environ.get("LLM_PRIMARY_MODEL", "claude-sonnet-4-6")
+        self.cheap_model = os.environ.get("LLM_CHEAP_MODEL", "claude-haiku-4-5")
+        self.nebius_model = os.environ.get("LLM_NEBIUS_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+        self.openai_model = os.environ.get("LLM_OPENAI_MODEL", "gpt-5.4")
+        self.openai_cheap_model = os.environ.get("LLM_OPENAI_CHEAP_MODEL", "gpt-5.4-mini")
         self._total_tokens = 0
         self._tool_calls = 0
         self._queries = 0
@@ -68,12 +82,12 @@ class LLMClient:
         self._queries += 1
 
         if self._anthropic_client:
-            return await self._call_anthropic(prompt, model, temperature, max_tokens)
+            return await self._call_anthropic(prompt, model or self.primary_model, temperature, max_tokens)
         elif self._nebius_client:
             return await self._call_openai_compatible(
                 self._nebius_client,
                 prompt,
-                model or "meta-llama/Llama-3.3-70B-Instruct",
+                model or self.nebius_model,
                 temperature,
                 max_tokens,
             )
@@ -81,7 +95,7 @@ class LLMClient:
             return await self._call_openai_compatible(
                 self._openai_client,
                 prompt,
-                model or "gpt-4o",
+                model or self.openai_model,
                 temperature,
                 max_tokens,
             )
@@ -108,7 +122,7 @@ class LLMClient:
             return await self._call_openai_compatible(
                 self._nebius_client,
                 prompt,
-                "meta-llama/Llama-3.3-70B-Instruct",
+                self.nebius_model,
                 temperature,
                 max_tokens,
             )
@@ -116,13 +130,13 @@ class LLMClient:
             return await self._call_openai_compatible(
                 self._openai_client,
                 prompt,
-                "gpt-4o-mini",
+                self.openai_cheap_model,
                 temperature,
                 max_tokens,
             )
         elif self._anthropic_client:
             return await self._call_anthropic(
-                prompt, "claude-sonnet-4-20250514", temperature, max_tokens
+                prompt, self.cheap_model, temperature, max_tokens
             )
         else:
             raise RuntimeError("No LLM API key configured.")
@@ -134,7 +148,7 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        model = model or "claude-sonnet-4-20250514"
+        model = model or self.primary_model
         response = await self._anthropic_client.messages.create(
             model=model,
             max_tokens=max_tokens,
