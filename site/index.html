@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="CRM Purple Agent: A schema-adaptive, adversarially robust CRM agent for the Berkeley RDI AgentX–AgentBeats Phase 2 competition with 5-layer pipeline architecture.">
+    <meta name="keywords" content="CRM agent, AgentX, AgentBeats, Berkeley RDI, schema drift, context rot, LLM, A2A protocol, SQL generation">
+    <meta name="author" content="MadGAA-Lab">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="CRM Purple Agent — AgentX Phase 2">
+    <meta property="og:description"
+        content="A schema-adaptive CRM agent competing in the Berkeley RDI AgentX–AgentBeats Phase 2 competition, handling 2,140 CRM tasks with adversarial robustness.">
+    <meta property="og:image" content="images/logo.jpg">
+    <meta property="og:type" content="website">
+
+    <title>CRM Purple Agent — AgentX–AgentBeats Phase 2</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="images/crm-agent.png">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="https://github.com/MadGAA-Lab/" class="nav-logo">
+                <img src="images/logo.jpg" alt="MadGAA-Lab" class="nav-logo-img">
+                <span>MadGAA-Lab</span>
+            </a>
+            <div class="nav-links">
+                <a href="https://github.com/MadGAA-Lab/">Home</a>
+                <a href="https://github.com/MadGAA-Lab/" class="active">Projects</a>
+                <a href="https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev" target="_blank" rel="noopener">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main">
+        <article class="article">
+            <!-- Header -->
+            <header class="article-header">
+                <h1>CRM Purple Agent — Berkeley RDI AgentX–AgentBeats Phase 2</h1>
+
+                <!-- Badges Section -->
+                <div class="badges-container">
+                    <a href="https://agentbeats.dev" target="_blank" rel="noopener" class="badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        AgentBeats
+                    </a>
+                    <a href="https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev" target="_blank" rel="noopener" class="badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+                            </path>
+                        </svg>
+                        Code
+                    </a>
+                    <a href="https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev#getting-started" class="badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                        </svg>
+                        Docs
+                    </a>
+                    <a href="https://github.com/rkstu/entropic-crmarenapro" target="_blank" rel="noopener" class="badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        Green Agent
+                    </a>
+                </div>
+            </header>
+
+            <!-- Hero Image -->
+            <figure class="hero-figure">
+                <img src="images/crm-agent.png" alt="CRM Purple Agent" class="hero-image" style="max-width:320px;margin:0 auto;display:block;">
+            </figure>
+
+            <!-- Introduction -->
+            <section class="content-section">
+                <p class="lead">
+                    Building a robust CRM agent is harder than it looks—real-world deployments face
+                    <em>schema drift</em> (column names that silently change), <em>context rot</em>
+                    (stale notes polluting task context), and the sheer breadth of enterprise CRM workflows.
+                    <strong>CRM Purple Agent</strong> is our answer: a schema-adaptive, adversarially robust agent
+                    competing in the Berkeley RDI <strong>AgentX–AgentBeats Phase 2</strong> competition.
+                </p>
+
+                <p>
+                    Evaluated by the <strong>Entropic CRMArena</strong> green agent across <strong>2,140 CRM tasks</strong>
+                    spanning 22 categories, the purple agent must handle everything from lead qualification and sales
+                    analytics to knowledge base QA and case routing—all while the evaluation environment actively
+                    mutates schema column names and injects irrelevant context into task payloads.
+                </p>
+
+                <p>
+                    Most CRM agents fail under adversarial conditions because they hard-code schema assumptions.
+                    Our agent detects drift at runtime, maps mutated column names back to canonical ones, and strips
+                    rotted context before ever touching an LLM—keeping accuracy high and token costs low.
+                </p>
+            </section>
+
+            <!-- Key Numbers -->
+            <section class="stats-section">
+                <div class="stat-item">
+                    <span class="stat-number">2,140</span>
+                    <span class="stat-label">CRM Tasks</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">22</span>
+                    <span class="stat-label">Task Categories</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">5</span>
+                    <span class="stat-label">Pipeline Layers</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">8</span>
+                    <span class="stat-label">CRM Schema Tables</span>
+                </div>
+            </section>
+
+            <!-- How It Works -->
+            <section class="content-section">
+                <h2 id="how-it-works">How does it work?</h2>
+
+                <p>
+                    The agent implements a <strong>5-layer pipeline</strong> designed to fail gracefully under adversarial
+                    conditions. Each layer handles a distinct failure mode seen in real CRM deployments, from privacy
+                    violations to hallucinated SQL. Tasks arrive via the <strong>A2A (Agent-to-Agent)</strong> JSON-RPC
+                    protocol and flow through the pipeline before a structured answer is returned.
+                </p>
+
+                <div class="info-grid">
+                    <div class="info-card doctor">
+                        <div class="info-card-header">
+                            <img src="images/crm-agent.png" alt="Purple Agent" class="info-icon">
+                            <h3>Adversarial Challenges</h3>
+                        </div>
+                        <ul>
+                            <li>✗ Schema Drift — column names mutate</li>
+                            <li>✗ Context Rot — stale notes injected</li>
+                            <li>✗ Privacy traps — PII extraction attempts</li>
+                            <li>✗ Ambiguous task intent</li>
+                            <li>✗ SQL hallucinations on drifted schema</li>
+                            <li>✗ 22-category task distribution</li>
+                        </ul>
+                    </div>
+                    <div class="info-card patient">
+                        <div class="info-card-header">
+                            <img src="images/logo.jpg" alt="Pipeline" class="info-icon">
+                            <h3>Pipeline Defenses</h3>
+                        </div>
+                        <ul>
+                            <li>✓ Rule-based privacy rejection (0 LLM calls)</li>
+                            <li>✓ Runtime drift mapping (fuzzy + hardcoded)</li>
+                            <li>✓ Rot note stripping + heuristic filtering</li>
+                            <li>✓ 22 category-specific prompt templates</li>
+                            <li>✓ Hallucination grounding in synthesizer</li>
+                            <li>✓ Max-2-retry error recovery</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <p>
+                    The <strong>Privacy Guard</strong> runs first with zero LLM calls, instantly rejecting tasks
+                    in three private categories. Surviving tasks then hit <strong>Schema Introspector</strong> and
+                    <strong>Context Filter</strong> in parallel before the <strong>Task Planner</strong> classifies
+                    intent. The <strong>SQL Generator</strong> uses category-specific prompts with the corrected schema,
+                    and the <strong>Answer Synthesizer</strong> grounds the final output against real database results
+                    to prevent hallucination.
+                </p>
+            </section>
+
+            <!-- Pipeline -->
+            <section class="content-section">
+                <h2 id="pipeline">Pipeline Architecture</h2>
+
+                <ul class="feature-list">
+                    <li><strong>Privacy Guard</strong> — Rule-based, zero LLM calls — instantly rejects 3 private task categories before any processing</li>
+                    <li><strong>L1 · Schema Introspector</strong> — Detects drifted column names and maps them back to the canonical CRM schema (8 tables, 6 relationships) using hardcoded rules + fuzzy fallback</li>
+                    <li><strong>L1 · Context Filter</strong> — Strips rot noise from task context; heuristic relevance filtering to reduce irrelevant tokens before SQL generation</li>
+                    <li><strong>L2 · Task Planner</strong> — Classifies the task into one of 22 categories: <code>exact_query_match</code>, <code>semantic_retrieval</code>, or <code>privacy_rejection</code></li>
+                    <li><strong>L3 · SQL Generator</strong> — Category-specific prompt templates with schema-aware LLM reasoning using Claude Sonnet 4 as the primary model</li>
+                    <li><strong>L4 · Answer Synthesizer</strong> — Cleans output, formats multi-value answers, and grounds responses against actual query results to block hallucinations</li>
+                    <li><strong>L5 · Error Recovery</strong> — Up to 2 retries with schema re-introspection on failure; graceful degradation to a safe fallback answer</li>
+                </ul>
+            </section>
+
+            <!-- Quick Start -->
+            <section class="content-section">
+                <h2 id="quickstart">Quick Start</h2>
+
+                <pre class="code-block"><code><span class="comment"># Clone and install</span>
+git clone https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev.git
+cd CRM-Agent-Phase2_dev
+uv sync
+
+<span class="comment"># Run the agent locally (requires at least ANTHROPIC_API_KEY)</span>
+ANTHROPIC_API_KEY=sk-ant-... uv run src/server.py
+
+<span class="comment"># Or run with Docker</span>
+docker build -t crm-purple-agent .
+docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-ant-... crm-purple-agent
+
+<span class="comment"># Run unit tests</span>
+uv run pytest tests/ --ignore=tests/test_agent.py -v</code></pre>
+            </section>
+
+            <!-- Environment Variables -->
+            <section class="content-section">
+                <h2 id="env">Environment Variables</h2>
+
+                <p>The agent supports multiple LLM backends. At minimum, set <code>ANTHROPIC_API_KEY</code>.</p>
+
+                <ul class="feature-list">
+                    <li><strong>ANTHROPIC_API_KEY</strong> — Claude Sonnet 4 (primary LLM) — required</li>
+                    <li><strong>NEBIUS_API_KEY</strong> — Llama 3.3 70B via Nebius — cost-optimized context filtering (optional)</li>
+                    <li><strong>OPENAI_API_KEY</strong> — GPT-5.4 fallback (optional)</li>
+                    <li><strong>LLM_PRIMARY_MODEL</strong> — Override primary Anthropic model (default: <code>claude-sonnet-4-6</code>)</li>
+                    <li><strong>LLM_CHEAP_MODEL</strong> — Override cheap Anthropic model (default: <code>claude-haiku-4-5</code>)</li>
+                </ul>
+            </section>
+
+            <!-- Citation -->
+            <section class="content-section citation-section">
+                <h2 id="citation">Citation</h2>
+
+                <p>If you use CRM Purple Agent in your research, please cite:</p>
+
+                <pre class="code-block bibtex"><code>@software{crm_purple_agent,
+  title = {CRM Purple Agent: Schema-Adaptive CRM Agent for AgentX--AgentBeats Phase 2},
+  author = {MadGAA-Lab},
+  year = {2026},
+  url = {https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev},
+  note = {Competing agent for Berkeley RDI AgentX--AgentBeats Phase 2 competition}
+}</code></pre>
+            </section>
+        </article>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <p>© 2026 MadGAA-Lab · <a href="https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev">GitHub</a> · MIT License</p>
+        </div>
+    </footer>
+</body>
+
+</html>
