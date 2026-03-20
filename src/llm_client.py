@@ -22,7 +22,7 @@ class LLMClient:
     - Privacy guard                                → rule-based (no LLM)
 
     ── Primary tier ────────────────────────────────────────────────────────────
-    OPENAI_API_KEY          Key for the primary provider
+    OPENAI_PRIMARY_API_KEY  Key for the primary provider
     LLM_PRIMARY_BASE_URL    Optional base URL override
                             e.g. https://api.anthropic.com/v1  (Claude compat)
                             e.g. https://api.groq.com/openai/v1
@@ -31,7 +31,7 @@ class LLMClient:
 
     ── Cheap tier ──────────────────────────────────────────────────────────────
     OPENAI_CHEAP_API_KEY    Key for the cheap provider (optional — falls back to
-                            OPENAI_API_KEY when not set)
+                            OPENAI_PRIMARY_API_KEY when not set)
     LLM_CHEAP_BASE_URL      Optional base URL override
                             e.g. https://api.studio.nebius.com/v1
                             e.g. http://localhost:8000/v1  (local vLLM)
@@ -41,7 +41,7 @@ class LLMClient:
     Examples
     --------
     # Claude as primary, Nebius/Llama as cheap:
-    OPENAI_API_KEY=sk-ant-…
+    OPENAI_PRIMARY_API_KEY=sk-ant-…
     LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
     LLM_PRIMARY_MODEL=claude-sonnet-4-6
     OPENAI_CHEAP_API_KEY=<nebius-key>
@@ -50,7 +50,7 @@ class LLMClient:
     """
 
     def __init__(self):
-        self.openai_key = os.environ.get("OPENAI_API_KEY")
+        self.openai_key = os.environ.get("OPENAI_PRIMARY_API_KEY")
         self.openai_cheap_key = os.environ.get("OPENAI_CHEAP_API_KEY")
 
         # Base URL overrides — primary falls back to Claude's compat endpoint;
@@ -124,7 +124,7 @@ class LLMClient:
             )
         else:
             raise RuntimeError(
-                "No LLM API key configured. Set OPENAI_API_KEY or OPENAI_CHEAP_API_KEY."
+                "No LLM API key configured. Set OPENAI_PRIMARY_API_KEY or OPENAI_CHEAP_API_KEY."
             )
 
     async def call_cheap(

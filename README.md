@@ -60,10 +60,10 @@ The agent implements a 5-layer pipeline:
 uv sync
 
 # Run with OpenAI as primary provider
-OPENAI_API_KEY=sk-... uv run src/server.py
+OPENAI_PRIMARY_API_KEY=sk-... uv run src/server.py
 
 # Run with Claude as primary + Nebius as cheap tier
-OPENAI_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
+OPENAI_PRIMARY_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
   OPENAI_CHEAP_API_KEY=<nebius-key> LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1 \
   uv run src/server.py
 ```
@@ -75,7 +75,7 @@ OPENAI_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_
 docker build -t crm-purple-agent .
 
 # Run the container
-docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
+docker run -p 9009:9009 -e OPENAI_PRIMARY_API_KEY=sk-... crm-purple-agent
 ```
 
 ## Environment Variables
@@ -87,7 +87,7 @@ any OpenAI-compatible provider via a key and an optional base URL.
 
 | Variable | Purpose | Required |
 |---|---|---|
-| `OPENAI_API_KEY` | Key for the **primary** provider | At least one |
+| `OPENAI_PRIMARY_API_KEY` | Key for the **primary** provider | At least one |
 | `OPENAI_CHEAP_API_KEY` | Key for the **cheap** provider | Optional |
 
 ### Base URL Overrides
@@ -108,7 +108,7 @@ any OpenAI-compatible provider via a key and an optional base URL.
 
 ```bash
 # Claude Sonnet as primary (Anthropic OpenAI-compat endpoint)
-OPENAI_API_KEY=sk-ant-...
+OPENAI_PRIMARY_API_KEY=sk-ant-...
 LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
 LLM_PRIMARY_MODEL=claude-sonnet-4-6
 

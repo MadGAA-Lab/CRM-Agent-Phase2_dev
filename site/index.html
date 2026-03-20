@@ -216,17 +216,17 @@ git clone https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev.git
 cd CRM-Agent-Phase2_dev
 uv sync
 
-<span class="comment"># Run the agent locally (requires at least OPENAI_API_KEY)</span>
-OPENAI_API_KEY=sk-... uv run src/server.py
+<span class="comment"># Run the agent locally (requires at least OPENAI_PRIMARY_API_KEY)</span>
+OPENAI_PRIMARY_API_KEY=sk-... uv run src/server.py
 
 <span class="comment"># Claude as primary, Nebius as cheap tier</span>
-OPENAI_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
+OPENAI_PRIMARY_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
   OPENAI_CHEAP_API_KEY=&lt;nebius-key&gt; LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1 \
   uv run src/server.py
 
 <span class="comment"># Or run with Docker</span>
 docker build -t crm-purple-agent .
-docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
+docker run -p 9009:9009 -e OPENAI_PRIMARY_API_KEY=sk-... crm-purple-agent
 
 <span class="comment"># Run unit tests</span>
 uv run pytest tests/ --ignore=tests/test_agent.py -v</code></pre>
@@ -240,7 +240,7 @@ uv run pytest tests/ --ignore=tests/test_agent.py -v</code></pre>
                 Configure each tier with a key and an optional base URL; no provider is hard-coded.</p>
 
                 <ul class="feature-list">
-                    <li><strong>OPENAI_API_KEY</strong> — Key for the primary provider — required</li>
+                    <li><strong>OPENAI_PRIMARY_API_KEY</strong> — Key for the primary provider — required</li>
                     <li><strong>LLM_PRIMARY_BASE_URL</strong> — Base URL override for the primary provider (default: OpenAI). E.g. <code>https://api.anthropic.com/v1</code></li>
                     <li><strong>LLM_PRIMARY_MODEL</strong> — Primary model name (default: <code>claude-sonnet-4-6</code>)</li>
                     <li><strong>OPENAI_CHEAP_API_KEY</strong> — Key for the cheap provider — optional</li>

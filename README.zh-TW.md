@@ -133,7 +133,7 @@ tests/
 uv sync
 
 # 啟動 agent（使用 OpenAI 作為主要 provider）
-OPENAI_API_KEY=sk-... uv run src/server.py
+OPENAI_PRIMARY_API_KEY=sk-... uv run src/server.py
 
 # 執行測試
 uv run pytest tests/ --ignore=tests/test_agent.py -v
@@ -143,7 +143,7 @@ uv run pytest tests/ --ignore=tests/test_agent.py -v
 
 ```bash
 docker build -t crm-purple-agent .
-docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
+docker run -p 9009:9009 -e OPENAI_PRIMARY_API_KEY=sk-... crm-purple-agent
 ```
 
 ## 環境變數
@@ -154,7 +154,7 @@ docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
 
 | 變數 | 用途 | 必要 |
 |------|------|------|
-| `OPENAI_API_KEY` | **主要** provider 金鑰 | 至少一個 |
+| `OPENAI_PRIMARY_API_KEY` | **主要** provider 金鑰 | 至少一個 |
 | `OPENAI_CHEAP_API_KEY` | **便宜** provider 金鑰 | 選配 |
 
 ### Base URL 覆寫（選配）
@@ -175,7 +175,7 @@ docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
 
 ```bash
 # 以 Claude Sonnet 作為主要（Anthropic OpenAI 相容端點）
-OPENAI_API_KEY=sk-ant-...
+OPENAI_PRIMARY_API_KEY=sk-ant-...
 LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
 LLM_PRIMARY_MODEL=claude-sonnet-4-6
 

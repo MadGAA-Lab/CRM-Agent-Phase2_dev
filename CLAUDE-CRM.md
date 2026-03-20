@@ -719,7 +719,7 @@ class LLMClient:
     OpenAI-compatible provider via a key + optional base URL override.
 
     Environment variables:
-    - OPENAI_API_KEY:       Key for the primary provider
+    - OPENAI_PRIMARY_API_KEY: Key for the primary provider
     - LLM_PRIMARY_BASE_URL: Optional base URL (e.g. https://api.anthropic.com/v1)
     - LLM_PRIMARY_MODEL:    Primary model name (default: claude-sonnet-4-6)
     - OPENAI_CHEAP_API_KEY: Key for the cheap provider
@@ -735,7 +735,7 @@ class LLMClient:
     """
 
     def __init__(self):
-        self.openai_key = os.environ.get("OPENAI_API_KEY")
+        self.openai_key = os.environ.get("OPENAI_PRIMARY_API_KEY")
         self.openai_cheap_key = os.environ.get("OPENAI_CHEAP_API_KEY")
         self.primary_model = os.environ.get("LLM_PRIMARY_MODEL", "claude-sonnet-4-6")
         self.cheap_model = os.environ.get("LLM_CHEAP_MODEL", "claude-haiku-4-5")
@@ -858,7 +858,7 @@ docker push ghcr.io/<your-username>/crm-purple-agent:latest
 git clone https://github.com/rkstu/entropic-crmarenapro.git
 cd entropic-crmarenapro
 uv sync
-export OPENAI_API_KEY=your_key
+export OPENAI_PRIMARY_API_KEY=your_key
 uv run src/server.py --host 127.0.0.1 --port 9009
 ```
 
@@ -869,7 +869,7 @@ uv run src/server.py --host 127.0.0.1 --port 9009
 cd crm-purple-agent
 uv sync
 # Any OpenAI-compatible provider — set key + optional base URL:
-export OPENAI_API_KEY=your_key
+export OPENAI_PRIMARY_API_KEY=your_key
 # export LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1  # for Claude
 # export LLM_PRIMARY_MODEL=claude-sonnet-4-6
 uv run src/server.py --host 127.0.0.1 --port 9009
@@ -920,7 +920,7 @@ curl -X POST http://127.0.0.1:9009/ ... "drift_level": "medium", "rot_level": "m
 1. Go to https://agentbeats.dev/agentbeater/entropic-crmarenapro
 2. Click "Quick Submit"
 3. Select your purple agent
-4. Add secrets: `OPENAI_API_KEY` (and optionally `OPENAI_CHEAP_API_KEY`)
+4. Add secrets: `OPENAI_PRIMARY_API_KEY` (and optionally `OPENAI_CHEAP_API_KEY`)
 5. Set config: `{"task_limit": 20, "drift_level": "medium", "rot_level": "medium", "org_type": "b2b"}`
 6. Submit → wait for GitHub Actions → merge PR
 
@@ -936,7 +936,7 @@ curl -X POST http://127.0.0.1:9009/ ... "drift_level": "medium", "rot_level": "m
    [[participants]]
    agentbeats_id = "YOUR_PURPLE_AGENT_ID"
    name = "agent"
-   env = { OPENAI_API_KEY = "${OPENAI_API_KEY}", LLM_PRIMARY_BASE_URL = "${LLM_PRIMARY_BASE_URL}" }
+   env = { OPENAI_PRIMARY_API_KEY = "${OPENAI_PRIMARY_API_KEY}", LLM_PRIMARY_BASE_URL = "${LLM_PRIMARY_BASE_URL}" }
 
    [config]
    task_limit = 2140
@@ -969,7 +969,7 @@ curl -X POST http://127.0.0.1:9009/ ... "drift_level": "medium", "rot_level": "m
 
 ```bash
 # Primary tier — any OpenAI-compatible provider
-OPENAI_API_KEY=sk-...                         # required
+OPENAI_PRIMARY_API_KEY=sk-...                         # required
 LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1  # optional: point at Claude
 LLM_PRIMARY_MODEL=claude-sonnet-4-6           # optional: override model
 

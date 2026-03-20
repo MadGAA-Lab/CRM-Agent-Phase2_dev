@@ -8,7 +8,7 @@
     type: "object",
     properties: {
       // ── Primary tier ──────────────────────────────────────────────────
-      openai_api_key:       { type: "string", secret: true },   // OPENAI_API_KEY
+      openai_primary_api_key: { type: "string", secret: true },   // OPENAI_PRIMARY_API_KEY
       llm_primary_base_url: { type: "string" },                 // LLM_PRIMARY_BASE_URL
       llm_primary_model:    { type: "string" },                 // LLM_PRIMARY_MODEL
       // ── Cheap tier ────────────────────────────────────────────────────
@@ -16,7 +16,7 @@
       llm_cheap_base_url:   { type: "string" },                 // LLM_CHEAP_BASE_URL
       llm_cheap_model:      { type: "string" },                 // LLM_CHEAP_MODEL
     },
-    required: ["openai_api_key"],
+    required: ["openai_primary_api_key"],
     additionalProperties: false,
   },
 
@@ -31,7 +31,7 @@
     entrypoint: "uv run python src/server.py --host 0.0.0.0 --port 9009",
 
     env: {
-      OPENAI_API_KEY:       "${config.openai_api_key}",
+      OPENAI_PRIMARY_API_KEY: "${config.openai_primary_api_key}",
       LLM_PRIMARY_BASE_URL: "${config.llm_primary_base_url}",
       LLM_PRIMARY_MODEL:    "${config.llm_primary_model}",
       OPENAI_CHEAP_API_KEY: "${config.openai_cheap_api_key}",
