@@ -1,0 +1,15 @@
+# Exclude evaluation framework - not needed in the purple agent image
+third_party/
+
+# Dev/test artifacts
+.env
+.env.*
+!.env.example
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+tests/
+*.md
+!README.md
