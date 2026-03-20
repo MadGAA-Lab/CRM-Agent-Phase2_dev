@@ -60,7 +60,13 @@ class LLMClient:
 
         # Model configuration via env vars
         self.primary_model = os.environ.get("LLM_PRIMARY_MODEL", "claude-sonnet-4-6")
-        self.cheap_model = os.environ.get("LLM_CHEAP_MODEL", "claude-haiku-4-5")
+        # Cheap model default: haiku when pointing at Anthropic, otherwise mirror primary model
+        _cheap_model_default = (
+            "claude-haiku-4-5"
+            if self.cheap_base_url == "https://api.anthropic.com/v1/"
+            else self.primary_model
+        )
+        self.cheap_model = os.environ.get("LLM_CHEAP_MODEL", _cheap_model_default)
 
         self._total_tokens = 0
         self._tool_calls = 0
@@ -82,7 +88,7 @@ class LLMClient:
         if cheap_key:
             self._cheap_client = openai.AsyncOpenAI(
                 api_key=cheap_key,
-                base_url=self.cheap_base_url,  # Same endpoint as primary or override with LLM_CHEAP_BASE_URL
+                base_url=self.cheap_base_url,  # Same endpoint as primary
             )
 
     async def call(
