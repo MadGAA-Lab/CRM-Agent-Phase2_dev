@@ -715,28 +715,38 @@ class LLMClient:
     """
     Unified LLM client supporting multiple backends.
     
+    Two independent tiers — primary (expensive) and cheap — each backed by any
+    OpenAI-compatible provider via a key + optional base URL override.
+
     Environment variables:
-    - ANTHROPIC_API_KEY: For Claude models (primary)
-    - NEBIUS_API_KEY: For Llama models via Nebius (cost-optimized)
-    - OPENAI_API_KEY: For OpenAI models (fallback)
-    
+    - OPENAI_API_KEY:       Key for the primary provider
+    - LLM_PRIMARY_BASE_URL: Optional base URL (e.g. https://api.anthropic.com/v1)
+    - LLM_PRIMARY_MODEL:    Primary model name (default: claude-sonnet-4-6)
+    - OPENAI_CHEAP_API_KEY: Key for the cheap provider
+    - LLM_CHEAP_BASE_URL:   Optional base URL (e.g. https://api.studio.nebius.com/v1)
+    - LLM_CHEAP_MODEL:      Cheap model name (default: claude-haiku-4-5)
+
     Model routing:
-    - Planning + SQL generation + Answer synthesis → Claude Sonnet 4
-    - Context filtering → Llama 3.3 70B via Nebius (cheaper)
-    - Privacy guard → Rule-based (no LLM)
-    
+    - Planning + SQL generation + Answer synthesis → call()       (primary tier)
+    - Context filtering                            → call_cheap() (cheap tier)
+    - Privacy guard                                → Rule-based (no LLM)
+
     IMPORTANT: Track token usage for the metrics response.
     """
-    
+
     def __init__(self):
-        self.anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        self.nebius_key = os.environ.get("NEBIUS_API_KEY")
         self.openai_key = os.environ.get("OPENAI_API_KEY")
+        self.openai_cheap_key = os.environ.get("OPENAI_CHEAP_API_KEY")
+        self.primary_model = os.environ.get("LLM_PRIMARY_MODEL", "claude-sonnet-4-6")
+        self.cheap_model = os.environ.get("LLM_CHEAP_MODEL", "claude-haiku-4-5")
         self._total_tokens = 0
-    
-    async def call(self, prompt: str, model: str = "claude-sonnet-4-20250514") -> str:
-        """Call the specified model and return the response text."""
-        # Implementation depends on which API key is available
+
+    async def call(self, prompt: str, model: str | None = None) -> str:
+        """Call the primary (expensive) tier and return response text."""
+        pass
+
+    async def call_cheap(self, prompt: str) -> str:
+        """Call the cheap tier for simple tasks like context filtering."""
         pass
     
     @property
@@ -848,7 +858,7 @@ docker push ghcr.io/<your-username>/crm-purple-agent:latest
 git clone https://github.com/rkstu/entropic-crmarenapro.git
 cd entropic-crmarenapro
 uv sync
-export NEBIUS_API_KEY=your_key  # or OPENAI_API_KEY
+export OPENAI_API_KEY=your_key
 uv run src/server.py --host 127.0.0.1 --port 9009
 ```
 
@@ -858,7 +868,10 @@ uv run src/server.py --host 127.0.0.1 --port 9009
 # Terminal 2
 cd crm-purple-agent
 uv sync
-export ANTHROPIC_API_KEY=your_key  # or NEBIUS_API_KEY or OPENAI_API_KEY
+# Any OpenAI-compatible provider — set key + optional base URL:
+export OPENAI_API_KEY=your_key
+# export LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1  # for Claude
+# export LLM_PRIMARY_MODEL=claude-sonnet-4-6
 uv run src/server.py --host 127.0.0.1 --port 9009
 ```
 
@@ -907,7 +920,7 @@ curl -X POST http://127.0.0.1:9009/ ... "drift_level": "medium", "rot_level": "m
 1. Go to https://agentbeats.dev/agentbeater/entropic-crmarenapro
 2. Click "Quick Submit"
 3. Select your purple agent
-4. Add secrets: `ANTHROPIC_API_KEY` (or `NEBIUS_API_KEY`)
+4. Add secrets: `OPENAI_API_KEY` (and optionally `OPENAI_CHEAP_API_KEY`)
 5. Set config: `{"task_limit": 20, "drift_level": "medium", "rot_level": "medium", "org_type": "b2b"}`
 6. Submit → wait for GitHub Actions → merge PR
 
@@ -918,12 +931,12 @@ curl -X POST http://127.0.0.1:9009/ ... "drift_level": "medium", "rot_level": "m
    ```toml
    [green_agent]
    agentbeats_id = "019ba211-13b7-7e83-9086-c8015a5e4957"
-   env = { NEBIUS_API_KEY = "${NEBIUS_API_KEY}" }
+   env = { OPENAI_API_KEY = "${OPENAI_API_KEY}" }
 
    [[participants]]
    agentbeats_id = "YOUR_PURPLE_AGENT_ID"
    name = "agent"
-   env = { ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}" }
+   env = { OPENAI_API_KEY = "${OPENAI_API_KEY}", LLM_PRIMARY_BASE_URL = "${LLM_PRIMARY_BASE_URL}" }
 
    [config]
    task_limit = 2140
@@ -955,10 +968,15 @@ curl -X POST http://127.0.0.1:9009/ ... "drift_level": "medium", "rot_level": "m
 ## Environment Variables
 
 ```bash
-# Primary LLM (pick one)
-ANTHROPIC_API_KEY=sk-ant-...      # For Claude Sonnet 4
-NEBIUS_API_KEY=...                 # For Llama 3.3 70B (cheaper, free credits)
-OPENAI_API_KEY=sk-...             # For GPT-4o (alternative)
+# Primary tier — any OpenAI-compatible provider
+OPENAI_API_KEY=sk-...                         # required
+LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1  # optional: point at Claude
+LLM_PRIMARY_MODEL=claude-sonnet-4-6           # optional: override model
+
+# Cheap tier — any OpenAI-compatible provider (e.g. Nebius, local vLLM)
+OPENAI_CHEAP_API_KEY=...                      # optional
+LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1  # optional
+LLM_CHEAP_MODEL=claude-haiku-4-5  # optional
 
 # Server config
 HOST=0.0.0.0

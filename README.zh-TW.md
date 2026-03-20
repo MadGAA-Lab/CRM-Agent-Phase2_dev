@@ -132,8 +132,8 @@ tests/
 # 安裝依賴
 uv sync
 
-# 啟動 agent
-ANTHROPIC_API_KEY=sk-xxx uv run src/server.py
+# 啟動 agent（使用 OpenAI 作為主要 provider）
+OPENAI_API_KEY=sk-... uv run src/server.py
 
 # 執行測試
 uv run pytest tests/ --ignore=tests/test_agent.py -v
@@ -143,25 +143,44 @@ uv run pytest tests/ --ignore=tests/test_agent.py -v
 
 ```bash
 docker build -t crm-purple-agent .
-docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-xxx crm-purple-agent
+docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
 ```
 
 ## 環境變數
 
+用戶端採用**主要**（昂貴）與**便宜**兩個獨立層級，每個層級可指向任何 OpenAI 相容的 provider。
+
+### API 金鑰
+
 | 變數 | 用途 | 必要 |
 |------|------|------|
-| `ANTHROPIC_API_KEY` | 啟用 Anthropic 模型（見模型配置）| 至少一個 |
-| `NEBIUS_API_KEY` | 啟用 Nebius Llama 3.3 70B（見模型配置）| 選配 |
-| `OPENAI_API_KEY` | 啟用 OpenAI 模型（見模型配置）| 選配 |
+| `OPENAI_API_KEY` | **主要** provider 金鑰 | 至少一個 |
+| `OPENAI_CHEAP_API_KEY` | **便宜** provider 金鑰 | 選配 |
 
-### 模型配置（可選）
+### Base URL 覆寫（選配）
 
-預設模型會在未設定時啟用。
+| 變數 | 預設 | 說明 |
+|------|------|------|
+| `LLM_PRIMARY_BASE_URL` | _(OpenAI)_ | 主要 provider 的 base URL，例如 `https://api.anthropic.com/v1` |
+| `LLM_CHEAP_BASE_URL` | _(OpenAI)_ | 便宜 provider 的 base URL，例如 `https://api.studio.nebius.com/v1` |
+
+### 模型覆寫（選配）
 
 | 變數 | 預設 | 用途 |
 |------|------|------|
-| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | Anthropic 主要呼叫 |
-| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | Anthropic 便宜 / fallback 呼叫 |
-| `LLM_NEBIUS_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Nebius 模型 |
-| `LLM_OPENAI_MODEL` | `gpt-5.4` | OpenAI 主要呼叫 |
-| `LLM_OPENAI_CHEAP_MODEL` | `gpt-5.4-mini` | OpenAI 便宜呼叫 |
+| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | 主要（昂貴）呼叫的模型 |
+| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | 便宜 / 快速呼叫的模型 |
+
+### Provider 範例
+
+```bash
+# 以 Claude Sonnet 作為主要（Anthropic OpenAI 相容端點）
+OPENAI_API_KEY=sk-ant-...
+LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
+LLM_PRIMARY_MODEL=claude-sonnet-4-6
+
+# 以 Nebius / Llama 作為便宜層級
+OPENAI_CHEAP_API_KEY=<nebius-key>
+LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1
+LLM_CHEAP_MODEL=claude-haiku-4-5
+```

@@ -1,21 +1,22 @@
 {
   manifest_version: "0.1.0",
 
-  // API keys required by the CRM agent's LLM client
+  // API keys and provider config for the CRM agent's LLM client.
+  // Two independent tiers — primary (expensive) and cheap — each backed by
+  // any OpenAI-compatible provider via a key + optional base URL override.
   config_schema: {
     type: "object",
     properties: {
-      anthropic_api_key: { type: "string", secret: true },
-      nebius_api_key: { type: "string", secret: true },
-      openai_api_key: { type: "string", secret: true },
-      // Optional: override default model names
-      llm_primary_model: { type: "string" },
-      llm_cheap_model: { type: "string" },
-      llm_nebius_model: { type: "string" },
-      llm_openai_model: { type: "string" },
-      llm_openai_cheap_model: { type: "string" },
+      // ── Primary tier ──────────────────────────────────────────────────
+      openai_api_key:       { type: "string", secret: true },   // OPENAI_API_KEY
+      llm_primary_base_url: { type: "string" },                 // LLM_PRIMARY_BASE_URL
+      llm_primary_model:    { type: "string" },                 // LLM_PRIMARY_MODEL
+      // ── Cheap tier ────────────────────────────────────────────────────
+      openai_cheap_api_key: { type: "string", secret: true },   // OPENAI_CHEAP_API_KEY
+      llm_cheap_base_url:   { type: "string" },                 // LLM_CHEAP_BASE_URL
+      llm_cheap_model:      { type: "string" },                 // LLM_CHEAP_MODEL
     },
-    required: ["anthropic_api_key"],
+    required: ["openai_api_key"],
     additionalProperties: false,
   },
 
@@ -30,14 +31,12 @@
     entrypoint: "uv run python src/server.py --host 0.0.0.0 --port 9009",
 
     env: {
-      ANTHROPIC_API_KEY: "${config.anthropic_api_key}",
-      NEBIUS_API_KEY: "${config.nebius_api_key}",
-      OPENAI_API_KEY: "${config.openai_api_key}",
-      LLM_PRIMARY_MODEL: "${config.llm_primary_model}",
-      LLM_CHEAP_MODEL: "${config.llm_cheap_model}",
-      LLM_NEBIUS_MODEL: "${config.llm_nebius_model}",
-      LLM_OPENAI_MODEL: "${config.llm_openai_model}",
-      LLM_OPENAI_CHEAP_MODEL: "${config.llm_openai_cheap_model}",
+      OPENAI_API_KEY:       "${config.openai_api_key}",
+      LLM_PRIMARY_BASE_URL: "${config.llm_primary_base_url}",
+      LLM_PRIMARY_MODEL:    "${config.llm_primary_model}",
+      OPENAI_CHEAP_API_KEY: "${config.openai_cheap_api_key}",
+      LLM_CHEAP_BASE_URL:   "${config.llm_cheap_base_url}",
+      LLM_CHEAP_MODEL:      "${config.llm_cheap_model}",
     },
 
     network: {

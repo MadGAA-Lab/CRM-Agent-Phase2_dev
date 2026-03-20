@@ -59,11 +59,13 @@ The agent implements a 5-layer pipeline:
 # Install dependencies
 uv sync
 
-# Run the server (requires at least ANTHROPIC_API_KEY)
-ANTHROPIC_API_KEY=sk-ant-... uv run src/server.py
+# Run with OpenAI as primary provider
+OPENAI_API_KEY=sk-... uv run src/server.py
 
-# Run the server with all optional backends
-ANTHROPIC_API_KEY=sk-ant-... NEBIUS_API_KEY=... uv run src/server.py
+# Run with Claude as primary + Nebius as cheap tier
+OPENAI_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
+  OPENAI_CHEAP_API_KEY=<nebius-key> LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1 \
+  uv run src/server.py
 ```
 
 ### Running with Docker
@@ -73,30 +75,53 @@ ANTHROPIC_API_KEY=sk-ant-... NEBIUS_API_KEY=... uv run src/server.py
 docker build -t crm-purple-agent .
 
 # Run the container
-docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-ant-... crm-purple-agent
+docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
 ```
 
 ## Environment Variables
+
+The client uses two independent **tiers** — primary (expensive) and cheap — each pointing at
+any OpenAI-compatible provider via a key and an optional base URL.
 
 ### API Keys
 
 | Variable | Purpose | Required |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Enables Anthropic models (see Model Configuration) | At least one |
-| `NEBIUS_API_KEY` | Enables Nebius Llama 3.3 70B (see Model Configuration) | Optional |
-| `OPENAI_API_KEY` | Enables OpenAI models (see Model Configuration) | Optional |
+| `OPENAI_API_KEY` | Key for the **primary** provider | At least one |
+| `OPENAI_CHEAP_API_KEY` | Key for the **cheap** provider | Optional |
 
-### Model Configuration
-
-Default models are used when these are not set.
+### Base URL Overrides
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | Anthropic model for primary calls |
-| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | Anthropic model for cheap/fallback calls |
-| `LLM_NEBIUS_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Nebius model |
-| `LLM_OPENAI_MODEL` | `gpt-5.4` | OpenAI model for primary calls |
-| `LLM_OPENAI_CHEAP_MODEL` | `gpt-5.4-mini` | OpenAI model for cheap calls |
+| `LLM_PRIMARY_BASE_URL` | _(OpenAI)_ | Base URL for the primary provider, e.g. `https://api.anthropic.com/v1` |
+| `LLM_CHEAP_BASE_URL` | _(OpenAI)_ | Base URL for the cheap provider, e.g. `https://api.studio.nebius.com/v1` |
+
+### Model Overrides
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | Model for primary (expensive) calls |
+| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | Model for cheap/fast calls |
+
+### Provider Examples
+
+```bash
+# Claude Sonnet as primary (Anthropic OpenAI-compat endpoint)
+OPENAI_API_KEY=sk-ant-...
+LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
+LLM_PRIMARY_MODEL=claude-sonnet-4-6
+
+# Nebius / Llama as cheap tier
+OPENAI_CHEAP_API_KEY=<nebius-key>
+LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1
+LLM_CHEAP_MODEL=claude-haiku-4-5
+
+# Local vLLM as cheap tier
+OPENAI_CHEAP_API_KEY=dummy
+LLM_CHEAP_BASE_URL=http://localhost:8000/v1
+LLM_CHEAP_MODEL=my-local-model
+```
 
 ## Testing
 

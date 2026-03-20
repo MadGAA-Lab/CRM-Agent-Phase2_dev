@@ -1,9 +1,8 @@
-"""Unified LLM client supporting Anthropic (Claude) and OpenAI-compatible APIs."""
+"""Unified LLM client — any OpenAI-compatible provider for both tiers."""
 
 import os
 import logging
 
-import anthropic
 import openai
 
 logger = logging.getLogger(__name__)
@@ -13,55 +12,78 @@ class LLMClient:
     """
     Unified LLM client with token tracking.
 
+    Two independent tiers — primary (expensive) and cheap — each backed by any
+    OpenAI-compatible provider.  Configure each tier with a key and an optional
+    base URL; no provider is hard-coded.
+
     Model routing:
-    - Planning + SQL generation + Answer synthesis → Claude Sonnet 4
-    - Context filtering → Llama 3.3 70B via Nebius (cheaper) or Claude fallback
-    - Privacy guard → Rule-based (no LLM)
+    - Planning + SQL generation + Answer synthesis → primary tier  (call)
+    - Context filtering                            → cheap tier    (call_cheap)
+    - Privacy guard                                → rule-based (no LLM)
 
-    Environment variables:
-    - ANTHROPIC_API_KEY: For Claude models (primary)
-    - NEBIUS_API_KEY: For Llama models via Nebius (cost-optimized)
-    - OPENAI_API_KEY: For OpenAI models (fallback)
+    ── Primary tier ────────────────────────────────────────────────────────────
+    OPENAI_API_KEY          Key for the primary provider
+    LLM_PRIMARY_BASE_URL    Optional base URL override
+                            e.g. https://api.anthropic.com/v1  (Claude compat)
+                            e.g. https://api.groq.com/openai/v1
+                            (default: https://api.anthropic.com/v1)
+    LLM_PRIMARY_MODEL       Model name  (default: claude-sonnet-4-6)
 
-    Model names can be overridden via environment variables:
-    - LLM_PRIMARY_MODEL:     Claude model for primary calls (default: claude-sonnet-4-6)
-    - LLM_CHEAP_MODEL:       Anthropic model for cheap calls (default: claude-haiku-4-5)
-    - LLM_NEBIUS_MODEL:      Nebius model (default: meta-llama/Llama-3.3-70B-Instruct)
-    - LLM_OPENAI_MODEL:      OpenAI model for primary calls (default: gpt-5.4)
-    - LLM_OPENAI_CHEAP_MODEL: OpenAI model for cheap calls (default: gpt-5.4-mini)
+    ── Cheap tier ──────────────────────────────────────────────────────────────
+    OPENAI_CHEAP_API_KEY    Key for the cheap provider (optional — falls back to
+                            OPENAI_API_KEY when not set)
+    LLM_CHEAP_BASE_URL      Optional base URL override
+                            e.g. https://api.studio.nebius.com/v1
+                            e.g. http://localhost:8000/v1  (local vLLM)
+                            (default: LLM_PRIMARY_BASE_URL)
+    LLM_CHEAP_MODEL         Model name  (default: claude-haiku-4-5)
+
+    Examples
+    --------
+    # Claude as primary, Nebius/Llama as cheap:
+    OPENAI_API_KEY=sk-ant-…
+    LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
+    LLM_PRIMARY_MODEL=claude-sonnet-4-6
+    OPENAI_CHEAP_API_KEY=<nebius-key>
+    LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1
+    LLM_CHEAP_MODEL=claude-haiku-4-5
     """
 
-    NEBIUS_BASE_URL = "https://api.studio.nebius.com/v1"
-
     def __init__(self):
-        self.anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        self.nebius_key = os.environ.get("NEBIUS_API_KEY")
         self.openai_key = os.environ.get("OPENAI_API_KEY")
+        self.openai_cheap_key = os.environ.get("OPENAI_CHEAP_API_KEY")
+
+        # Base URL overrides — primary falls back to Claude's compat endpoint;
+        # cheap falls back to primary so both tiers share the same provider by default.
+        self.primary_base_url = os.environ.get("LLM_PRIMARY_BASE_URL", "https://api.anthropic.com/v1/")
+        self.cheap_base_url = os.environ.get("LLM_CHEAP_BASE_URL", self.primary_base_url)
 
         # Model configuration via env vars
         self.primary_model = os.environ.get("LLM_PRIMARY_MODEL", "claude-sonnet-4-6")
         self.cheap_model = os.environ.get("LLM_CHEAP_MODEL", "claude-haiku-4-5")
-        self.nebius_model = os.environ.get("LLM_NEBIUS_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
-        self.openai_model = os.environ.get("LLM_OPENAI_MODEL", "gpt-5.4")
-        self.openai_cheap_model = os.environ.get("LLM_OPENAI_CHEAP_MODEL", "gpt-5.4-mini")
+
         self._total_tokens = 0
         self._tool_calls = 0
         self._queries = 0
 
-        # Initialize clients based on available keys
-        self._anthropic_client = None
-        self._openai_client = None
-        self._nebius_client = None
+        self._primary_client = None   # expensive tier
+        self._cheap_client = None     # cost-optimised tier
 
-        if self.anthropic_key:
-            self._anthropic_client = anthropic.AsyncAnthropic(api_key=self.anthropic_key)
-        if self.nebius_key:
-            self._nebius_client = openai.AsyncOpenAI(
-                api_key=self.nebius_key,
-                base_url=self.NEBIUS_BASE_URL,
-            )
         if self.openai_key:
-            self._openai_client = openai.AsyncOpenAI(api_key=self.openai_key)
+            self._primary_client = openai.AsyncOpenAI(
+                api_key=self.openai_key,
+                base_url=self.primary_base_url,
+            )
+
+        # Cheap client: use dedicated cheap key if provided, otherwise fall back
+        # to the primary key so that LLM_CHEAP_BASE_URL / LLM_CHEAP_MODEL still work
+        # even when OPENAI_CHEAP_API_KEY is not set.
+        cheap_key = self.openai_cheap_key or self.openai_key
+        if cheap_key:
+            self._cheap_client = openai.AsyncOpenAI(
+                api_key=cheap_key,
+                base_url=self.cheap_base_url,  # Same endpoint as primary or override with LLM_CHEAP_BASE_URL
+            )
 
     async def call(
         self,
@@ -71,37 +93,32 @@ class LLMClient:
         max_tokens: int = 1024,
     ) -> str:
         """
-        Call the LLM and return response text.
+        Call the primary (expensive) tier and return response text.
 
-        Model selection priority:
-        1. If Anthropic key available → use Claude
-        2. If Nebius key available → use Llama via Nebius
-        3. If OpenAI key available → use GPT
+        Falls back to the cheap tier if no primary key is configured.
         """
         self._tool_calls += 1
         self._queries += 1
 
-        if self._anthropic_client:
-            return await self._call_anthropic(prompt, model or self.primary_model, temperature, max_tokens)
-        elif self._nebius_client:
+        if self._primary_client:
             return await self._call_openai_compatible(
-                self._nebius_client,
+                self._primary_client,
                 prompt,
-                model or self.nebius_model,
+                model or self.primary_model,
                 temperature,
                 max_tokens,
             )
-        elif self._openai_client:
+        elif self._cheap_client:
             return await self._call_openai_compatible(
-                self._openai_client,
+                self._cheap_client,
                 prompt,
-                model or self.openai_model,
+                model or self.cheap_model,
                 temperature,
                 max_tokens,
             )
         else:
             raise RuntimeError(
-                "No LLM API key configured. Set ANTHROPIC_API_KEY, NEBIUS_API_KEY, or OPENAI_API_KEY."
+                "No LLM API key configured. Set OPENAI_API_KEY or OPENAI_CHEAP_API_KEY."
             )
 
     async def call_cheap(
@@ -111,53 +128,32 @@ class LLMClient:
         max_tokens: int = 512,
     ) -> str:
         """
-        Call a cheaper/faster model for simple tasks like context filtering.
+        Call the cheap tier for simple tasks like context filtering.
 
-        Priority: Nebius (Llama) → OpenAI → Anthropic (with cheaper model)
+        Falls back to the primary tier if no cheap key is configured.
+        Configure via OPENAI_CHEAP_API_KEY + LLM_CHEAP_BASE_URL.
         """
         self._tool_calls += 1
         self._queries += 1
 
-        if self._nebius_client:
+        if self._cheap_client:
             return await self._call_openai_compatible(
-                self._nebius_client,
+                self._cheap_client,
                 prompt,
-                self.nebius_model,
+                self.cheap_model,
                 temperature,
                 max_tokens,
             )
-        elif self._openai_client:
+        elif self._primary_client:
             return await self._call_openai_compatible(
-                self._openai_client,
+                self._primary_client,
                 prompt,
-                self.openai_cheap_model,
+                self.cheap_model,
                 temperature,
                 max_tokens,
-            )
-        elif self._anthropic_client:
-            return await self._call_anthropic(
-                prompt, self.cheap_model, temperature, max_tokens
             )
         else:
             raise RuntimeError("No LLM API key configured.")
-
-    async def _call_anthropic(
-        self,
-        prompt: str,
-        model: str | None,
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        model = model or self.primary_model
-        response = await self._anthropic_client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        # Track tokens
-        self._total_tokens += response.usage.input_tokens + response.usage.output_tokens
-        return response.content[0].text
 
     async def _call_openai_compatible(
         self,

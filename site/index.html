@@ -216,12 +216,17 @@ git clone https://github.com/MadGAA-Lab/CRM-Agent-Phase2_dev.git
 cd CRM-Agent-Phase2_dev
 uv sync
 
-<span class="comment"># Run the agent locally (requires at least ANTHROPIC_API_KEY)</span>
-ANTHROPIC_API_KEY=sk-ant-... uv run src/server.py
+<span class="comment"># Run the agent locally (requires at least OPENAI_API_KEY)</span>
+OPENAI_API_KEY=sk-... uv run src/server.py
+
+<span class="comment"># Claude as primary, Nebius as cheap tier</span>
+OPENAI_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
+  OPENAI_CHEAP_API_KEY=&lt;nebius-key&gt; LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1 \
+  uv run src/server.py
 
 <span class="comment"># Or run with Docker</span>
 docker build -t crm-purple-agent .
-docker run -p 9009:9009 -e ANTHROPIC_API_KEY=sk-ant-... crm-purple-agent
+docker run -p 9009:9009 -e OPENAI_API_KEY=sk-... crm-purple-agent
 
 <span class="comment"># Run unit tests</span>
 uv run pytest tests/ --ignore=tests/test_agent.py -v</code></pre>
@@ -231,14 +236,16 @@ uv run pytest tests/ --ignore=tests/test_agent.py -v</code></pre>
             <section class="content-section">
                 <h2 id="env">Environment Variables</h2>
 
-                <p>The agent supports multiple LLM backends. At minimum, set <code>ANTHROPIC_API_KEY</code>.</p>
+                <p>Two independent tiers — primary (expensive) and cheap — each backed by any OpenAI-compatible provider.
+                Configure each tier with a key and an optional base URL; no provider is hard-coded.</p>
 
                 <ul class="feature-list">
-                    <li><strong>ANTHROPIC_API_KEY</strong> — Claude Sonnet 4 (primary LLM) — required</li>
-                    <li><strong>NEBIUS_API_KEY</strong> — Llama 3.3 70B via Nebius — cost-optimized context filtering (optional)</li>
-                    <li><strong>OPENAI_API_KEY</strong> — GPT-5.4 fallback (optional)</li>
-                    <li><strong>LLM_PRIMARY_MODEL</strong> — Override primary Anthropic model (default: <code>claude-sonnet-4-6</code>)</li>
-                    <li><strong>LLM_CHEAP_MODEL</strong> — Override cheap Anthropic model (default: <code>claude-haiku-4-5</code>)</li>
+                    <li><strong>OPENAI_API_KEY</strong> — Key for the primary provider — required</li>
+                    <li><strong>LLM_PRIMARY_BASE_URL</strong> — Base URL override for the primary provider (default: OpenAI). E.g. <code>https://api.anthropic.com/v1</code></li>
+                    <li><strong>LLM_PRIMARY_MODEL</strong> — Primary model name (default: <code>claude-sonnet-4-6</code>)</li>
+                    <li><strong>OPENAI_CHEAP_API_KEY</strong> — Key for the cheap provider — optional</li>
+                    <li><strong>LLM_CHEAP_BASE_URL</strong> — Base URL override for the cheap provider. E.g. <code>https://api.studio.nebius.com/v1</code></li>
+                    <li><strong>LLM_CHEAP_MODEL</strong> — Cheap model name (default: <code>claude-haiku-4-5</code>)</li>
                 </ul>
             </section>
 
