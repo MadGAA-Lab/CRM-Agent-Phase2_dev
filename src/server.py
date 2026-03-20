@@ -1,5 +1,18 @@
 import argparse
+import os
+from pathlib import Path
+
 import uvicorn
+
+# Load .env from repo root for local development / debug runs.
+# Has no effect in Docker (no .env file present) or when vars are already set.
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path, override=False)  # override=False: real env vars take precedence
+except ImportError:
+    pass  # python-dotenv not installed — rely on environment variables directly
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
