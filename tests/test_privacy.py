@@ -20,9 +20,10 @@ class TestPrivacyGuard:
         task = {"task_category": "confidential_company_knowledge"}
         assert self.guard.is_privacy_request(task) is True
 
-    def test_detects_internal_operation_data(self):
+    def test_allows_internal_operation_data(self):
+        """internal_operation_data uses exact_match, not privacy_rejection."""
         task = {"task_category": "internal_operation_data"}
-        assert self.guard.is_privacy_request(task) is True
+        assert self.guard.is_privacy_request(task) is False
 
     def test_allows_normal_categories(self):
         normal_categories = [
@@ -39,6 +40,7 @@ class TestPrivacyGuard:
             "knowledge_qa",
             "activity_priority",
             "invalid_config",
+            "internal_operation_data",
             "policy_violation_identification",
             "quote_approval",
             "sales_amount_understanding",
