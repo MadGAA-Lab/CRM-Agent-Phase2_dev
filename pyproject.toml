@@ -8,10 +8,10 @@ dependencies = [
     "a2a-sdk[http-server]>=0.3.20",
     "uvicorn>=0.38.0",
     "httpx>=0.28.1",
-    "anthropic>=0.52.0",
     "openai>=1.30.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
+    "datasets>=4.8.3",
 ]
 
 [project.optional-dependencies]

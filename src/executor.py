@@ -14,6 +14,7 @@ from a2a.utils import (
 )
 
 from agent import Agent
+from crm_database import CRMDatabase
 
 
 TERMINAL_STATES = {
@@ -25,8 +26,9 @@ TERMINAL_STATES = {
 
 
 class Executor(AgentExecutor):
-    def __init__(self):
-        self.agents: dict[str, Agent] = {} # context_id to agent instance
+    def __init__(self, db: CRMDatabase | None = None):
+        self.db = db
+        self.agents: dict[str, Agent] = {}
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         msg = context.message
@@ -44,7 +46,7 @@ class Executor(AgentExecutor):
         context_id = task.context_id
         agent = self.agents.get(context_id)
         if not agent:
-            agent = Agent()
+            agent = Agent(db=self.db)
             self.agents[context_id] = agent
 
         updater = TaskUpdater(event_queue, task.id, context_id)

@@ -1,187 +1,375 @@
-"""Main CRM agent orchestrator implementing the 5-layer pipeline.
+"""Hybrid ReAct CRM Agent — SQLite DB + schema drift/rot defenses.
 
 Flow:
-1. Parse incoming A2A message to extract CRM task
-2. L1: Introspect schema + filter context
-3. L2: Plan execution strategy
-4. L3: Execute (LLM reasoning / privacy rejection)
-5. L4: Synthesize answer with hallucination guard
-6. L5: Wrap in error recovery
-7. Return A2A-formatted response
+1. Parse incoming A2A message → extract task JSON
+2. Privacy check (rule-based) → instant rejection
+3. Schema introspection → drift warnings for prompt
+4. Context filter → strip rot notes from required_context
+5. ReAct loop (max 8 turns): LLM thinks → SQL/describe/respond → observe
+6. Fallback answer extraction if no <respond> after max turns
+7. Return A2A artifact with answer + metrics
 """
 
 import json
 import logging
+import os
+import re
+
+import yaml
 
 from a2a.server.tasks import TaskUpdater
-from a2a.types import Message, Part, TaskState, TextPart
+from a2a.types import Message, Part, TaskState, TextPart, DataPart
 from a2a.utils import get_message_text, new_agent_text_message
 
+from crm_database import CRMDatabase
 from schema_introspector import SchemaIntrospector, load_canonical_schema
 from context_filter import ContextFilter
-from task_planner import TaskPlanner
-from sql_generator import SQLGenerator
 from privacy_guard import PrivacyGuard
-from answer_synthesizer import AnswerSynthesizer
-from error_recovery import ErrorRecovery
 from llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 
 
+def _load_prompts() -> dict:
+    """Load prompt templates from config/prompts.yaml."""
+    prompts_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "config", "prompts.yaml"
+    )
+    with open(prompts_path, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+PROMPTS = _load_prompts()
+
+
 class Agent:
-    """
-    CRM Purple Agent — 5-layer pipeline for Entropic CRMArena.
+    """Hybrid ReAct CRM Agent with real SQLite + schema drift/rot defenses."""
 
-    Layers:
-    L1: Schema Introspector + Context Filter
-    L2: Task Planner (strategy classification)
-    L3: SQL Generator (LLM reasoning) | Privacy Guard
-    L4: Answer Synthesizer + Hallucination Guard
-    L5: Error Recovery (max 2 retries)
-    """
-
-    def __init__(self):
+    def __init__(self, db: CRMDatabase | None = None):
         self.llm = LLMClient()
-        canonical_schema = load_canonical_schema()
-        self.introspector = SchemaIntrospector(canonical_schema)
-        self.context_filter = ContextFilter(llm_client=self.llm)
-        self.planner = TaskPlanner()
-        self.sql_generator = SQLGenerator(self.llm)
+        self.db = db
         self.privacy_guard = PrivacyGuard()
-        self.synthesizer = AnswerSynthesizer()
-        self.error_recovery = ErrorRecovery()
+        self.canonical_schema = load_canonical_schema()
+        self.introspector = SchemaIntrospector(self.canonical_schema)
+        self.context_filter = ContextFilter()
+        self.max_turns = int(os.getenv("MAX_TURNS", "8"))
+        self.metrics = {
+            "tokens": 0,
+            "tool_calls": 0,
+            "queries": 0,
+            "turns": 0,
+            "failed_queries": 0,
+        }
 
-    async def run(self, message: Message, updater: TaskUpdater) -> None:
-        """
-        Entry point called by executor.py.
-
-        Processes the incoming A2A message, runs the 5-layer pipeline,
-        and returns the answer as an A2A artifact.
-        """
-        input_text = get_message_text(message)
-        logger.info(f"Received message: {input_text[:200]}...")
-
-        # Reset LLM metrics for this task
+    def reset_metrics(self) -> None:
+        self.metrics = {
+            "tokens": 0,
+            "tool_calls": 0,
+            "queries": 0,
+            "turns": 0,
+            "failed_queries": 0,
+        }
         self.llm.reset_metrics()
 
+    # ── A2A entry point ────────────────────────────────────────────────
+
+    async def run(self, message: Message, updater: TaskUpdater) -> None:
+        self.reset_metrics()
+        input_text = get_message_text(message)
+        task = self._parse_task(input_text)
+        task_id = task.get("task_id", "unknown")
+        category = task.get("task_category", "unknown")
+
+        logger.info(f"Processing task {task_id} ({category})")
         await updater.update_status(
             TaskState.working,
-            new_agent_text_message("Processing CRM task..."),
+            new_agent_text_message(f"Processing: {category}"),
         )
 
         try:
-            # Parse the task JSON from the message
-            task = self._parse_task(input_text)
-            logger.info(
-                f"Task parsed: id={task.get('task_id')}, "
-                f"category={task.get('task_category')}, "
-                f"drift={task.get('entropy', {}).get('drift_level', 'none')}, "
-                f"rot={task.get('entropy', {}).get('rot_level', 'none')}"
-            )
-
-            # Execute the pipeline
-            answer = await self._execute_pipeline(task)
-
-            # Build response
-            response = self._build_response(task, answer)
-            logger.info(
-                f"Response: task_id={task.get('task_id')}, "
-                f"answer={answer[:100]}..., "
-                f"tokens={self.llm.total_tokens}"
-            )
-
-            # Return as A2A artifact
-            await updater.add_artifact(
-                parts=[Part(root=TextPart(text=response))],
-                name="CRM Answer",
-            )
-
+            answer = await self._process_task(task, updater)
         except Exception as e:
-            logger.error(f"Fatal error in agent pipeline: {e}", exc_info=True)
-            # Return error as artifact (better than crashing for ERROR_RECOVERY score)
-            error_response = json.dumps({
-                "answer": "insufficient data",
-                "metrics": {
-                    "tokens": self.llm.total_tokens,
-                    "tool_calls": self.llm.tool_calls,
-                    "queries": self.llm.queries,
-                },
-            })
-            await updater.add_artifact(
-                parts=[Part(root=TextPart(text=error_response))],
-                name="CRM Answer",
-            )
+            logger.error(f"Fatal error: {e}", exc_info=True)
+            answer = "insufficient data"
 
-    async def _execute_pipeline(self, task: dict) -> str:
-        """Execute the 5-layer pipeline and return the answer string."""
+        self.metrics["tokens"] = self.llm.total_tokens
+        self.metrics["tool_calls"] = self.llm.tool_calls
+        logger.info(f"Task {task_id} answer: {answer[:100]}")
 
-        # ── L3c: Privacy check (fastest path — no LLM, no DB) ──
-        if self.privacy_guard.is_privacy_request(task):
-            logger.info("Privacy category detected — returning rejection")
-            return self.privacy_guard.get_rejection()
-
-        # ── L1: Schema introspection + context filtering ──
-        schema_mapping = self.introspector.introspect(task)
-        schema_info = self.introspector.get_schema_description(schema_mapping)
-        filtered_context = await self.context_filter.filter(task)
-
-        # ── L2: Plan ──
-        plan = self.planner.plan(task)
-        strategy = plan["strategy"]
-        category_hint = plan.get("category_hint", "")
-        logger.info(f"Strategy: {strategy}, steps: {plan['steps']}")
-
-        # ── L3a + L5: Execute with retry ──
-        async def execute_task(task, schema_info=None, filtered_context=None, **_kw):
-            if strategy == "semantic_retrieval":
-                raw_answer = await self.sql_generator.generate_fuzzy(
-                    task, schema_info, filtered_context,
-                    category_hint=category_hint,
-                )
-            else:
-                raw_answer = await self.sql_generator.generate(
-                    task, schema_info, filtered_context,
-                    category_hint=category_hint,
-                )
-
-            # ── L4: Synthesize + hallucination guard ──
-            return self.synthesizer.synthesize(
-                task, raw_answer, strategy, filtered_context
-            )
-
-        answer = await self.error_recovery.execute_with_retry(
-            execute_task,
-            task,
-            self.introspector,
-            schema_info=schema_info,
-            filtered_context=filtered_context,
+        await updater.add_artifact(
+            parts=[
+                Part(root=TextPart(text=answer)),
+                Part(root=DataPart(data={
+                    "task_id": task_id,
+                    "category": category,
+                    "answer": answer,
+                    "metrics": self.metrics,
+                })),
+            ],
+            name="Answer",
         )
 
-        return answer
+    # ── Core logic ─────────────────────────────────────────────────────
+
+    async def _process_task(self, task: dict, updater: TaskUpdater) -> str:
+        category = task.get("task_category", "")
+
+        # Fast path: privacy rejection (no LLM, no DB)
+        if self.privacy_guard.is_privacy_request(task):
+            logger.info("Privacy category — returning rejection")
+            return PROMPTS.get("privacy_rejection", self.privacy_guard.get_rejection()).strip()
+
+        # Pre-processing: drift detection + context cleaning
+        entropy = task.get("entropy", {})
+        drift_level = entropy.get("drift_level", "none")
+
+        # Build drift warning for system prompt + reverse map for de-drifting context
+        drift_section = ""
+        reverse_map: dict[str, str] = {}
+        if drift_level != "none" and drift_level in self.introspector.KNOWN_DRIFT_MAPS:
+            known = self.introspector.KNOWN_DRIFT_MAPS[drift_level]
+            reverse_map = {v: k for k, v in known.items()}
+            drift_lines = "\n".join(f"  {k} → {v}" for k, v in known.items())
+            drift_section = PROMPTS["drift_warning"].format(
+                drift_level=drift_level,
+                drift_lines=drift_lines,
+            )
+
+        # Strip rot notes from context
+        cleaned_context = await self.context_filter.filter(task)
+
+        # Apply reverse drift mapping to context text (de-drift)
+        if reverse_map and cleaned_context:
+            for drifted, canonical in reverse_map.items():
+                cleaned_context = cleaned_context.replace(drifted, canonical)
+
+        # Build ReAct messages
+        tables = self.db.get_tables() if self.db and self.db.is_available else []
+        system_msg = PROMPTS["system_prompt"].format(
+            tables=", ".join(tables) if tables else "(no database available)",
+            drift_section=drift_section,
+        )
+
+        user_content = f"Question: {task.get('prompt', '')}"
+        if task.get("persona"):
+            user_content += f"\nPersona: {task['persona']}"
+        if cleaned_context:
+            ctx = cleaned_context[:6000] if len(cleaned_context) > 6000 else cleaned_context
+            user_content += f"\n\nContext:\n{ctx}"
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_content},
+        ]
+
+        logger.info(f"Context length: {len(cleaned_context) if cleaned_context else 0}, DB tables: {len(tables)}")
+
+        # ── ReAct Loop ─────────────────────────────────────────────────
+        final_answer = None
+        last_response = ""
+
+        for turn in range(self.max_turns):
+            self.metrics["turns"] += 1
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"Turn {turn + 1}/{self.max_turns}"),
+            )
+
+            response = await self._call_llm(messages)
+            last_response = response
+            action = self._extract_action(response)
+
+            logger.info(
+                f"Turn {turn + 1}: type={action['type']}, "
+                f"content={str(action.get('content', ''))[:80]}"
+            )
+
+            if action["type"] == "execute" and action["content"]:
+                self.metrics["tool_calls"] += 1
+                self.metrics["queries"] += 1
+
+                if self.db and self.db.is_available:
+                    result = self.db.execute_query(action["content"])
+                    if result["success"]:
+                        obs = f"Result ({result['count']} rows): {json.dumps(result['data'][:8], default=str)}"
+                    else:
+                        obs = f"SQL Error: {result['error']}"
+                        self.metrics["failed_queries"] += 1
+                else:
+                    obs = "Error: No database available. Use the Context data to answer."
+
+                messages.append({"role": "assistant", "content": response})
+                messages.append({"role": "user", "content": f"[Observation: {obs}]"})
+
+            elif action["type"] == "describe" and action["content"]:
+                self.metrics["tool_calls"] += 1
+
+                if self.db and self.db.is_available:
+                    result = self.db.describe_table(action["content"])
+                    if result["success"]:
+                        cols = [c["name"] for c in result["columns"]]
+                        obs = f"{result['table']} ({result['row_count']} rows): {', '.join(cols)}"
+                    else:
+                        obs = f"Error: {result['error']}"
+                else:
+                    obs = "Error: No database available."
+
+                messages.append({"role": "assistant", "content": response})
+                messages.append({"role": "user", "content": f"[Schema: {obs}]"})
+
+            elif action["type"] == "respond" and action["content"]:
+                final_answer = action["content"]
+                break
+
+            else:
+                # No valid action — nudge
+                if turn >= self.max_turns - 2:
+                    final_answer = self._fallback_answer(response)
+                    break
+                messages.append({"role": "assistant", "content": response})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Please use <execute> for SQL, <describe> for schema, "
+                        "or <respond> for your final answer."
+                    ),
+                })
+
+        if not final_answer:
+            final_answer = self._fallback_answer(last_response)
+
+        return final_answer or "insufficient data"
+
+    # ── LLM call ───────────────────────────────────────────────────────
+
+    async def _call_llm(self, messages: list[dict[str, str]]) -> str:
+        """Call LLM with full message history."""
+        try:
+            client = self.llm._primary_client or self.llm._cheap_client
+            if not client:
+                raise RuntimeError("No LLM API key configured")
+
+            model = self.llm.primary_model
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            if response.usage:
+                self.llm._total_tokens += response.usage.total_tokens
+            self.llm._tool_calls += 1
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            return f"Error: {e}"
+
+    # ── Action extraction ──────────────────────────────────────────────
+
+    def _extract_action(self, response: str) -> dict:
+        """Parse <thought>, <execute>, <describe>, <respond> from LLM response."""
+        action: dict = {"thought": "", "type": None, "content": None}
+
+        thought_match = re.search(
+            r"<thought>(.*?)</thought>", response, re.DOTALL | re.IGNORECASE
+        )
+        if thought_match:
+            action["thought"] = thought_match.group(1).strip()
+
+        execute_match = re.search(
+            r"<execute>(.*?)</execute>", response, re.DOTALL | re.IGNORECASE
+        )
+        describe_match = re.search(
+            r"<describe>(.*?)</describe>", response, re.DOTALL | re.IGNORECASE
+        )
+        respond_match = re.search(
+            r"<respond>(.*?)</respond>", response, re.DOTALL | re.IGNORECASE
+        )
+
+        # Priority: respond > execute > describe (so we capture final answers first)
+        if respond_match:
+            action["type"] = "respond"
+            action["content"] = respond_match.group(1).strip()
+        elif execute_match:
+            action["type"] = "execute"
+            action["content"] = execute_match.group(1).strip()
+        elif describe_match:
+            action["type"] = "describe"
+            action["content"] = describe_match.group(1).strip()
+        else:
+            # Fallback: look for raw SQL
+            if "SELECT" in response.upper():
+                sql_match = re.search(
+                    r"(SELECT\s+[\s\S]+?(?:;|$))", response, re.IGNORECASE
+                )
+                if sql_match:
+                    action["type"] = "execute"
+                    action["content"] = sql_match.group(1).strip()
+
+        return action
+
+    # ── Fallback answer extraction ─────────────────────────────────────
+
+    def _fallback_answer(self, response: str) -> str:
+        """Extract best answer from response when no <respond> tag."""
+        if not response:
+            return "None"
+
+        # Check for respond tag
+        respond = re.search(
+            r"<respond>(.*?)</respond>", response, re.DOTALL | re.IGNORECASE
+        )
+        if respond:
+            return respond.group(1).strip()
+
+        # Look for Salesforce ID
+        id_match = re.search(r"\b([0-9a-zA-Z]{15,18})\b", response)
+        if id_match:
+            return id_match.group(1)
+
+        # Look for month name
+        months = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ]
+        for month in months:
+            if month.lower() in response.lower():
+                return month
+
+        # Look for BANT factors
+        for factor in ["Budget", "Authority", "Need", "Timeline"]:
+            if factor.lower() in response.lower():
+                return factor
+
+        # Look for quoted strings
+        quoted = re.findall(r"['\"]([^'\"]+)['\"]", response)
+        if quoted:
+            return quoted[-1]
+
+        # Last non-empty line
+        lines = [ln.strip() for ln in response.strip().splitlines() if ln.strip()]
+        if lines:
+            return lines[-1][:200]
+
+        return "None"
+
+    # ── Task parsing ───────────────────────────────────────────────────
 
     def _parse_task(self, input_text: str) -> dict:
-        """
-        Parse the CRM task from the incoming message text.
-
-        The green agent sends the task as a JSON string in the message parts.
-        We need to extract and parse it.
-        """
-        # Try direct JSON parse
+        """Parse the CRM task JSON from the incoming message text."""
         try:
-            task = json.loads(input_text)
-            if isinstance(task, dict) and ("task_id" in task or "prompt" in task):
-                return task
+            data = json.loads(input_text)
+            if isinstance(data, dict) and ("task_id" in data or "prompt" in data):
+                return data
         except json.JSONDecodeError:
             pass
 
-        # Try to find JSON embedded in the text
+        # Find JSON embedded in text
         brace_depth = 0
         start = -1
         for i, ch in enumerate(input_text):
@@ -202,9 +390,7 @@ class Agent:
                             return candidate
                     except json.JSONDecodeError:
                         start = -1
-                        continue
 
-        # Fallback: treat the whole text as the prompt
         logger.warning("Could not parse task JSON, treating as raw prompt")
         return {
             "task_id": "unknown",
@@ -215,17 +401,3 @@ class Agent:
             "config": {},
             "entropy": {"drift_level": "none", "rot_level": "none"},
         }
-
-    def _build_response(self, task: dict, answer: str) -> str:
-        """Build the JSON response string for the green agent."""
-        response = {
-            "task_id": task.get("task_id", "unknown"),
-            "answer": answer,
-            "category": task.get("task_category", ""),
-            "metrics": {
-                "tokens": self.llm.total_tokens,
-                "tool_calls": self.llm.tool_calls,
-                "queries": self.llm.queries,
-            },
-        }
-        return json.dumps(response)

@@ -1,18 +1,16 @@
 import argparse
-import os
 from pathlib import Path
 
 import uvicorn
 
 # Load .env from repo root for local development / debug runs.
-# Has no effect in Docker (no .env file present) or when vars are already set.
 try:
     from dotenv import load_dotenv
     _env_path = Path(__file__).parent.parent / ".env"
     if _env_path.exists():
-        load_dotenv(_env_path, override=False)  # override=False: real env vars take precedence
+        load_dotenv(_env_path, override=False)
 except ImportError:
-    pass  # python-dotenv not installed — rely on environment variables directly
+    pass
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -24,6 +22,8 @@ from a2a.types import (
 )
 
 from executor import Executor
+from db_builder import get_database_path
+from crm_database import CRMDatabase
 
 
 def main():
@@ -33,9 +33,17 @@ def main():
     parser.add_argument("--card-url", type=str, help="URL to advertise in the agent card")
     args = parser.parse_args()
 
-    # Fill in your agent card
-    # See: https://a2a-protocol.org/latest/tutorials/python/3-agent-skills-and-card/
-    
+    # ── Load CRM database ─────────────────────────────────────────────
+    db_path = get_database_path(org_type="b2b")
+    db = CRMDatabase(db_path)
+
+    if db.is_available:
+        tables = db.get_tables()
+        print(f"CRM Database ready: {len(tables)} tables")
+    else:
+        print("WARNING: CRM Database not available — agent will use context-only mode")
+
+    # ── Agent card ─────────────────────────────────────────────────────
     skill = AgentSkill(
         id="crm_task_solver",
         name="CRM Task Solver",
@@ -66,8 +74,9 @@ def main():
         skills=[skill],
     )
 
+    # ── Start server ───────────────────────────────────────────────────
     request_handler = DefaultRequestHandler(
-        agent_executor=Executor(),
+        agent_executor=Executor(db=db),
         task_store=InMemoryTaskStore(),
     )
     server = A2AStarletteApplication(
