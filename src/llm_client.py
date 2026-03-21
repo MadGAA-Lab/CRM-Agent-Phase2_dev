@@ -1,6 +1,7 @@
 """Unified LLM client — any OpenAI-compatible provider for both tiers."""
 
 import os
+import time
 import logging
 
 import openai
@@ -71,6 +72,14 @@ class LLMClient:
         self._total_tokens = 0
         self._tool_calls = 0
         self._queries = 0
+        self._fallback_count = 0
+
+        # Rate-limit cooldown: when primary returns 429, fall back to cheap
+        # tier for this many seconds before probing primary again.
+        self._cooldown_duration = float(
+            os.environ.get("LLM_RATE_LIMIT_COOLDOWN", "60")
+        )
+        self._primary_cooldown_until = 0.0
 
         self._primary_client = None   # expensive tier
         self._cheap_client = None     # cost-optimised tier
@@ -101,19 +110,60 @@ class LLMClient:
         """
         Call the primary (expensive) tier and return response text.
 
-        Falls back to the cheap tier if no primary key is configured.
+        Falls back to the cheap tier if no primary key is configured, or if
+        the primary tier is in a rate-limit cooldown (HTTP 429).
         """
         self._tool_calls += 1
         self._queries += 1
 
-        if self._primary_client:
+        # ── Rate-limit cooldown: route to cheap tier while cooling down ──
+        if self._primary_client and time.monotonic() < self._primary_cooldown_until:
+            if not self._cheap_client:
+                raise openai.RateLimitError(
+                    message="Primary model rate-limited and no cheap client available",
+                    response=None,
+                    body=None,
+                )
+            self._fallback_count += 1
             return await self._call_openai_compatible(
-                self._primary_client,
+                self._cheap_client,
                 prompt,
-                model or self.primary_model,
+                self.cheap_model,
                 temperature,
                 max_tokens,
             )
+
+        if self._primary_client:
+            if self._primary_cooldown_until > 0:
+                logger.info("Primary model cooldown expired, resuming primary tier")
+                self._primary_cooldown_until = 0.0
+            try:
+                return await self._call_openai_compatible(
+                    self._primary_client,
+                    prompt,
+                    model or self.primary_model,
+                    temperature,
+                    max_tokens,
+                )
+            except openai.RateLimitError:
+                self._primary_cooldown_until = (
+                    time.monotonic() + self._cooldown_duration
+                )
+                logger.warning(
+                    "Primary model rate-limited, falling back to cheap tier "
+                    "for %ds",
+                    self._cooldown_duration,
+                )
+                if not self._cheap_client:
+                    raise
+                self._fallback_count += 1
+                return await self._call_openai_compatible(
+                    self._cheap_client,
+                    prompt,
+                    self.cheap_model,
+                    temperature,
+                    max_tokens,
+                )
         elif self._cheap_client:
             return await self._call_openai_compatible(
                 self._cheap_client,
@@ -192,8 +242,15 @@ class LLMClient:
     def queries(self) -> int:
         return self._queries
 
+    @property
+    def fallback_count(self) -> int:
+        return self._fallback_count
+
     def reset_metrics(self):
         """Reset metrics counters for a new task."""
         self._total_tokens = 0
         self._tool_calls = 0
         self._queries = 0
+        self._fallback_count = 0
+        # NOTE: _primary_cooldown_until is intentionally NOT reset —
+        # the rate limit is account-wide, not task-specific.
