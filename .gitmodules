@@ -1,3 +1,6 @@
 [submodule "third_party/entropic-crmarenapro"]
 	path = third_party/entropic-crmarenapro
 	url = https://github.com/rkstu/entropic-crmarenapro
+[submodule "third_party/purple-crm-agent"]
+	path = third_party/purple-crm-agent
+	url = https://github.com/rkstu/purple-crm-agent
