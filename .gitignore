@@ -12,3 +12,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local Code Agent files
+.claude/
