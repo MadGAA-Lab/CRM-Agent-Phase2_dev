@@ -13,8 +13,11 @@ from a2a.utils import (
     new_task,
 )
 
+import asyncio
+
 from agent import Agent
 from crm_database import CRMDatabase
+from time_budget import TimeBudget
 
 
 TERMINAL_STATES = {
@@ -26,8 +29,9 @@ TERMINAL_STATES = {
 
 
 class Executor(AgentExecutor):
-    def __init__(self, db: CRMDatabase | None = None):
+    def __init__(self, db: CRMDatabase | None = None, time_budget: TimeBudget | None = None):
         self.db = db
+        self.time_budget = time_budget
         self.agents: dict[str, Agent] = {}
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
@@ -46,19 +50,33 @@ class Executor(AgentExecutor):
         context_id = task.context_id
         agent = self.agents.get(context_id)
         if not agent:
-            agent = Agent(db=self.db)
+            agent = Agent(db=self.db, time_budget=self.time_budget)
             self.agents[context_id] = agent
 
         updater = TaskUpdater(event_queue, task.id, context_id)
 
+        timeout_sec = self.time_budget.start_task() if self.time_budget else None
+
         await updater.start_work()
         try:
-            await agent.run(msg, updater)
+            if timeout_sec is not None:
+                async with asyncio.timeout(timeout_sec):
+                    await agent.run(msg, updater)
+            else:
+                await agent.run(msg, updater)
+            if not updater._terminal_state_reached:
+                await updater.complete()
+        except TimeoutError:
+            print(f"Task timed out after {timeout_sec:.1f}s")
+            await agent.handle_timeout(msg, updater)
             if not updater._terminal_state_reached:
                 await updater.complete()
         except Exception as e:
             print(f"Task failed with agent error: {e}")
             await updater.failed(new_agent_text_message(f"Agent error: {e}", context_id=context_id, task_id=task.id))
+        finally:
+            if self.time_budget:
+                self.time_budget.end_task()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise ServerError(error=UnsupportedOperationError())

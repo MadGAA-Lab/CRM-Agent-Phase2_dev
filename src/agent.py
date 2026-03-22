@@ -26,6 +26,7 @@ from schema_introspector import SchemaIntrospector, load_canonical_schema
 from context_filter import ContextFilter
 from privacy_guard import PrivacyGuard
 from llm_client import LLMClient
+from time_budget import TimeBudget
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,11 @@ PROMPTS = _load_prompts()
 class Agent:
     """Hybrid ReAct CRM Agent with real SQLite + schema drift/rot defenses."""
 
-    def __init__(self, db: CRMDatabase | None = None):
+    def __init__(self, db: CRMDatabase | None = None, time_budget: TimeBudget | None = None):
         self.llm = LLMClient()
         self.db = db
+        self.time_budget = time_budget
+        self._last_response = ""
         self.privacy_guard = PrivacyGuard()
         self.canonical_schema = load_canonical_schema()
         self.introspector = SchemaIntrospector(self.canonical_schema)
@@ -109,6 +112,32 @@ class Agent:
                     "category": category,
                     "answer": answer,
                     "metrics": self.metrics,
+                })),
+            ],
+            name="Answer",
+        )
+
+    async def handle_timeout(self, message: Message, updater: TaskUpdater) -> None:
+        """Produce a best-effort answer when the task times out."""
+        input_text = get_message_text(message)
+        task = self._parse_task(input_text)
+        task_id = task.get("task_id", "unknown")
+        category = task.get("task_category", "unknown")
+
+        answer = self._fallback_answer(self._last_response) if self._last_response else "insufficient data"
+        self.metrics["tokens"] = self.llm.total_tokens
+        self.metrics["tool_calls"] = self.llm.tool_calls
+        logger.warning(f"Task {task_id} timed out — fallback answer: {answer[:100]}")
+
+        await updater.add_artifact(
+            parts=[
+                Part(root=TextPart(text=answer)),
+                Part(root=DataPart(data={
+                    "task_id": task_id,
+                    "category": category,
+                    "answer": answer,
+                    "metrics": self.metrics,
+                    "timed_out": True,
                 })),
             ],
             name="Answer",
@@ -182,6 +211,7 @@ class Agent:
 
             response = await self._call_llm(messages)
             last_response = response
+            self._last_response = response
             action = self._extract_action(response)
 
             logger.info(

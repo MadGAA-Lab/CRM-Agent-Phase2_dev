@@ -24,6 +24,7 @@ from a2a.types import (
 from executor import Executor
 from db_builder import get_database_path
 from crm_database import CRMDatabase
+from time_budget import TimeBudget
 
 
 def main():
@@ -74,9 +75,12 @@ def main():
         skills=[skill],
     )
 
+    # ── Time budget ─────────────────────────────────────────────────────
+    time_budget = TimeBudget()
+
     # ── Start server ───────────────────────────────────────────────────
     request_handler = DefaultRequestHandler(
-        agent_executor=Executor(db=db),
+        agent_executor=Executor(db=db, time_budget=time_budget),
         task_store=InMemoryTaskStore(),
     )
     server = A2AStarletteApplication(
