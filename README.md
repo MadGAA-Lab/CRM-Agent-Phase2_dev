@@ -1,55 +1,104 @@
 # CRM Purple Agent — AgentX Phase 2
 
-A CRM agent for Berkeley RDI **AgentX–AgentBeats Phase 2** competition. Evaluated by the Entropic CRMArena green agent across 2,140 CRM tasks (22 categories) with schema drift and context rot resistance.
+A CRM agent for Berkeley RDI **AgentX-AgentBeats Phase 2** competition. Evaluated by the [Entropic CRMArena](https://github.com/rkstu/entropic-crmarenapro) green agent across 2,140 CRM tasks (22 categories) with schema drift and context rot resistance.
 
 > 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
+
+## Benchmark Results
+
+| Metric | Score |
+|---|---|
+| **Accuracy** | 75% |
+| **7D Average** | 86.7 |
+| **FUNCTIONAL** | 82.5 |
+| **DRIFT_ADAPTATION** | 75.0 |
+| **TOKEN_EFFICIENCY** | 99.8 |
+| **QUERY_EFFICIENCY** | 100.0 |
+| **ERROR_RECOVERY** | 82.5 |
+| **TRAJECTORY_EFFICIENCY** | 100.0 |
+| **HALLUCINATION_RATE** | 80.0 |
+
+Evaluated with `ghcr.io/rkstu/entropic-crmarena-green:latest` at medium drift / medium rot.
+
+## Architecture
+
+The agent uses a **hybrid deterministic + LLM** architecture:
+
+1. **Privacy Guard** — Rule-based instant rejection for 2 privacy categories (zero LLM calls)
+2. **Deterministic Handlers** — Fixed SQL templates for 7 structured categories (handle_time, lead_routing, sales_cycle, conversion_rate, sales_amount, best_region, transfer_count)
+3. **LLM ReAct Loop** — For categories requiring reasoning (transcript analysis, quote approval, knowledge QA, etc.)
+
+```
+Incoming A2A Task
+    |
+    v
+[1] Privacy Guard (rule-based) ──> Instant rejection
+    |
+[2] Schema Drift Detection ──> Reverse-map drifted column names
+    |
+[3] Context Rot Filtering ──> Strip noise notes
+    |
+[4] Category Router
+    |
+    ├── Deterministic Handler? ──> Fixed SQL + parameter extraction ──> Answer
+    |
+    └── LLM ReAct Loop (max 8 turns)
+        ├── <execute> SQL </execute>
+        ├── <describe> Table </describe>
+        └── <respond> Answer </respond>
+```
+
+### Why Hybrid?
+
+Pure LLM SQL generation is unreliable — the LLM produces garbage answers (date fragments, column names) for structured queries. Pure deterministic misses edge cases. The hybrid approach:
+
+- **Deterministic handlers** provide reliable, fast answers for well-defined categories (100% on lead_routing, 70% on handle_time)
+- **LLM fallback** handles the long tail — transcript analysis, policy reasoning, ambiguous queries
+- **Category-specific prompts** give the LLM only the relevant schema/joins, reducing token waste and hallucination
 
 ## Project Structure
 
 ```
 src/
-├─ server.py              # A2A server (port 9009) + agent card
-├─ executor.py            # A2A request handler
-├─ agent.py               # 5-layer pipeline orchestrator
-├─ privacy_guard.py       # Rule-based privacy rejection (3 categories)
-├─ schema_introspector.py # Drift mapping (hardcoded + fuzzy fallback)
-├─ context_filter.py      # Rot note stripping + heuristic filtering
-├─ task_planner.py        # Strategy classifier (22 categories)
-├─ sql_generator.py       # LLM reasoning with category-specific prompts
-├─ answer_synthesizer.py  # Answer formatting + hallucination guard
-├─ error_recovery.py      # Retry logic with re-introspection
-├─ llm_client.py          # Multi-backend LLM (Anthropic / Nebius / OpenAI)
-└─ messenger.py           # A2A messaging utilities
+├── server.py                # A2A server (Uvicorn) + agent card
+├── executor.py              # A2A request handler with timeout
+├── agent.py                 # Pipeline orchestrator (privacy → drift → rot → route)
+├── deterministic_handlers.py # SQL handlers for 7 structured categories
+├── privacy_guard.py         # Rule-based privacy rejection (2 categories)
+├── schema_introspector.py   # Drift mapping (low / medium / high)
+├── context_filter.py        # Rot note stripping + heuristic filtering
+├── crm_database.py          # Read-only SQLite wrapper with safety guards
+├── db_builder.py            # Database download from HuggingFace
+├── llm_client.py            # Dual-tier LLM client (primary + cheap fallback)
+├── time_budget.py           # Dynamic per-task timeout allocation
+└── messenger.py             # A2A messaging utilities
 config/
-├─ schema.json            # Canonical CRM schema (8 tables, 6 relationships)
-└─ prompts.yaml           # 22 prompt templates (3 general + 19 category-specific)
+├── schema.json              # Canonical CRM schema (27 tables, extracted from DB)
+└── prompts.yaml             # Category-routed prompt templates
+data/
+└── crmarenapro_b2b_data.db  # SQLite database (downloaded at startup)
 tests/
-├─ test_privacy.py        # Privacy guard tests
-├─ test_task_planner.py   # Task planner tests
-├─ test_introspector.py   # Schema introspector tests
-├─ test_context_filter.py # Context filter tests
-└─ test_agent.py          # A2A conformance tests
-Dockerfile                    # Docker configuration
-pyproject.toml                # Python dependencies
-amber-manifest.json5          # Amber manifest
-.github/
-└─ workflows/
-   └─ test-and-publish.yml    # CI workflow
+├── test_e2e_mock.py         # End-to-end mock tests
+├── test_privacy.py          # Privacy guard tests
+├── test_introspector.py     # Schema introspector tests
+├── test_context_filter.py   # Context filter tests
+├── test_time_budget.py      # Time budget tests
+└── test_agent.py            # A2A conformance tests
 ```
 
-## Pipeline Architecture
+### Deterministic Handlers
 
-The agent implements a 5-layer pipeline:
-
-| Layer | Component | Description |
+| Category | Accuracy | Approach |
 |---|---|---|
-| Privacy Guard | `privacy_guard.py` | Rule-based, zero LLM calls — instantly rejects 3 private categories |
-| L1 | `schema_introspector.py` | Detects & maps drifted column names (low / medium / high) |
-| L1 | `context_filter.py` | Strips rot noise, heuristic relevance filtering |
-| L2 | `task_planner.py` | Classifies task into `exact_query_match`, `semantic_retrieval`, or `privacy_rejection` |
-| L3 | `sql_generator.py` | Category-specific prompts with schema-aware LLM reasoning |
-| L4 | `answer_synthesizer.py` | Cleans output, formats multi-value answers, hallucination grounding |
-| L5 | `error_recovery.py` | Max 2 retries with schema re-introspection, graceful degradation |
+| `lead_routing` | 100% | Territory match → quote success → workload tiebreak |
+| `handle_time` | 70% | Transfer-aware case counting + non-transferred handle time |
+| `sales_amount_understanding` | 70% | Order + OrderItem join, grouped by agent |
+| `best_region_identification` | 60% | Case → Account join, grouped by ShippingState |
+| `conversion_rate_comprehension` | 55% | Lead conversion with ConvertedDate window check |
+| `transfer_count` | 45% | CaseHistory owner-change tracking per agent |
+| `sales_cycle_understanding` | 10% | Opportunity → Contract CompanySignedDate |
+
+Handlers extract parameters from the question (time period, threshold, direction) via regex, build parameterized SQL, and execute directly — no LLM involved.
 
 ## Getting Started
 
@@ -59,13 +108,11 @@ The agent implements a 5-layer pipeline:
 # Install dependencies
 uv sync
 
-# Run with OpenAI as primary provider
-OPENAI_PRIMARY_API_KEY=sk-... uv run src/server.py
+# Set API key (create .env or export)
+export OPENAI_PRIMARY_API_KEY=sk-...
 
-# Run with Claude as primary + Nebius as cheap tier
-OPENAI_PRIMARY_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1 LLM_PRIMARY_MODEL=claude-sonnet-4-6 \
-  OPENAI_CHEAP_API_KEY=<nebius-key> LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1 \
-  uv run src/server.py
+# Start the agent (default port 9010)
+uv run src/server.py --host 127.0.0.1 --port 9010
 ```
 
 ### Running with Docker
@@ -75,72 +122,86 @@ OPENAI_PRIMARY_API_KEY=sk-ant-... LLM_PRIMARY_BASE_URL=https://api.anthropic.com
 docker build -t crm-purple-agent .
 
 # Run the container
-docker run -p 9009:9009 -e OPENAI_PRIMARY_API_KEY=sk-... crm-purple-agent
+docker run -p 9010:9010 \
+  -e OPENAI_PRIMARY_API_KEY=sk-... \
+  crm-purple-agent --host 0.0.0.0 --port 9010
+```
+
+### Running the Benchmark
+
+```bash
+# Pull the green agent evaluator
+docker pull ghcr.io/rkstu/entropic-crmarena-green:latest
+
+# Start green agent (port 9009)
+docker run -d --name green-agent -p 9009:9009 \
+  --add-host=host.docker.internal:host-gateway \
+  -e OPENAI_API_KEY=<your-openai-key> \
+  ghcr.io/rkstu/entropic-crmarena-green:latest --host 0.0.0.0 --port 9009
+
+# Start purple agent locally (port 9010)
+uv run src/server.py --host 0.0.0.0 --port 9010 \
+  --card-url "http://host.docker.internal:9010/"
+
+# Trigger evaluation (20 tasks)
+curl -X POST http://127.0.0.1:9009/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "id": "bench",
+    "params": {
+      "message": {
+        "messageId": "bench",
+        "role": "user",
+        "parts": [{"kind": "text",
+          "text": "{\"participants\": {\"agent\": \"http://host.docker.internal:9010/\"}, \"config\": {\"task_limit\": 20}}"}]
+      }
+    }
+  }'
 ```
 
 ## Environment Variables
-
-The client uses two independent **tiers** — primary (expensive) and cheap — each pointing at
-any OpenAI-compatible provider via a key and an optional base URL.
 
 ### API Keys
 
 | Variable | Purpose | Required |
 |---|---|---|
-| `OPENAI_PRIMARY_API_KEY` | Key for the **primary** provider | At least one |
-| `OPENAI_CHEAP_API_KEY` | Key for the **cheap** provider | Optional |
+| `OPENAI_PRIMARY_API_KEY` | Key for the primary LLM provider | Yes |
+| `OPENAI_CHEAP_API_KEY` | Key for the cheap/fast fallback provider | Optional |
 
-### Base URL Overrides
-
-| Variable | Default | Description |
-|---|---|---|
-| `LLM_PRIMARY_BASE_URL` | _(OpenAI)_ | Base URL for the primary provider, e.g. `https://api.anthropic.com/v1` |
-| `LLM_CHEAP_BASE_URL` | _(OpenAI)_ | Base URL for the cheap provider, e.g. `https://api.studio.nebius.com/v1` |
-
-### Model Overrides
+### Model Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | Model for primary (expensive) calls |
-| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | Model for cheap/fast calls |
+| `LLM_PRIMARY_BASE_URL` | _(OpenAI)_ | Base URL for primary provider |
+| `LLM_CHEAP_BASE_URL` | _(OpenAI)_ | Base URL for cheap provider |
+| `LLM_PRIMARY_MODEL` | `claude-sonnet-4-6` | Primary model |
+| `LLM_CHEAP_MODEL` | `claude-haiku-4-5` | Cheap/fast model |
 
-### Provider Examples
+### Time Budget
 
-```bash
-# Claude Sonnet as primary (Anthropic OpenAI-compat endpoint)
-OPENAI_PRIMARY_API_KEY=sk-ant-...
-LLM_PRIMARY_BASE_URL=https://api.anthropic.com/v1
-LLM_PRIMARY_MODEL=claude-sonnet-4-6
-
-# Nebius / Llama as cheap tier
-OPENAI_CHEAP_API_KEY=<nebius-key>
-LLM_CHEAP_BASE_URL=https://api.studio.nebius.com/v1
-LLM_CHEAP_MODEL=claude-haiku-4-5
-
-# Local vLLM as cheap tier
-OPENAI_CHEAP_API_KEY=dummy
-LLM_CHEAP_BASE_URL=http://localhost:8000/v1
-LLM_CHEAP_MODEL=my-local-model
-```
+| Variable | Default | Description |
+|---|---|---|
+| `TIME_BUDGET_TOTAL_MIN` | `4320` | Total budget in minutes (72 hours) |
+| `TIME_BUDGET_TOTAL_TASKS` | `2140` | Total tasks for budget allocation |
+| `TIME_BUDGET_CAP_SEC` | `300` | Max seconds per task |
 
 ## Testing
 
 ```bash
-# Install test dependencies
-uv sync --extra test
-
-# Run unit tests (no agent required)
+# Unit tests (no agent required)
 uv run pytest tests/ --ignore=tests/test_agent.py -v
 
-# Start the agent, then run A2A conformance tests
-uv run pytest --agent-url http://localhost:9009
+# A2A conformance tests (start agent first)
+uv run pytest --agent-url http://localhost:9010
 ```
 
 ## Publishing
 
 The repository includes a GitHub Actions workflow that automatically builds, tests, and publishes a Docker image to GitHub Container Registry.
 
-Add your API keys in **Settings → Secrets and variables → Actions → Repository secrets**.
+Add your API keys in **Settings > Secrets and variables > Actions > Repository secrets**.
 
 - **Push to `main`** → publishes `latest` tag:
 ```
