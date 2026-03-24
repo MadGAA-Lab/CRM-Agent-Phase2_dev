@@ -32,7 +32,7 @@ def _extract_time_filter(question: str, ref_date: str) -> str:
     }
 
     def _rel(offset: str) -> str:
-        return f"{C} >= date('{ref_date}', '{offset}')"
+        return f"{C} >= date('{ref_date}', '{offset}') AND {C} <= '{ref_date}'"
 
     # "past N quarters" / "last N quarters" (digit)
     m = re.search(r"(?:past|last|over the (?:past|last))\s+(\d+)\s+quarter", q)
@@ -138,31 +138,60 @@ def _extract_direction(question: str) -> str:
 def handle_handle_time(question: str, db: CRMDatabase, ref_date: str) -> str | None:
     """Deterministic handler for handle_time category.
 
-    Policy: exclude transferred cases (>1 Owner Assignment in CaseHistory__c).
+    Policy from context:
+    - Handle time = ClosedDate - CreatedDate (only non-transferred, closed cases)
+    - 'managed cases' count = cases currently owned + cases transferred out
+    - Transferred case = has >1 Owner Assignment in CaseHistory__c
+    - Only compute handle time for NON-transferred closed cases
     """
     time_filter = _extract_time_filter(question, ref_date)
     threshold = _extract_threshold(question)
     direction = _extract_direction(question)
 
-    where_parts = ['C.ClosedDate IS NOT NULL']
+    date_start_cond = ""
     if time_filter:
-        where_parts.append(time_filter.replace(
-            "substr(CreatedDate,1,10)", "substr(C.CreatedDate,1,10)"))
+        date_start_cond = "AND " + time_filter.replace(
+            "substr(CreatedDate,1,10)", "substr(C.CreatedDate,1,10)")
 
-    where_clause = " AND ".join(where_parts)
-
-    # Exclude transferred cases: only cases with <= 1 Owner Assignment
+    # Policy: managed_count = cases owned + cases transferred out FROM agent
+    # Handle time = only non-transferred closed cases currently owned by agent
     sql = f'''
-    SELECT C.OwnerId,
-           AVG(julianday(substr(C.ClosedDate,1,19)) - julianday(substr(C.CreatedDate,1,19))) as avg_handle_time,
-           COUNT(*) as case_count
-    FROM "Case" C
-    WHERE {where_clause}
-      AND (SELECT COUNT(*) FROM CaseHistory__c CH
-           WHERE CH.CaseId__c = C.Id AND CH.Field__c LIKE '%wner%') <= 1
-    GROUP BY C.OwnerId
-    HAVING COUNT(*) > {threshold}
-    ORDER BY avg_handle_time {direction}
+    WITH cases_in_range AS (
+        SELECT C.Id, C.OwnerId, C.ClosedDate, C.CreatedDate,
+               (SELECT COUNT(*) FROM CaseHistory__c CH
+                WHERE CH.CaseId__c = C.Id AND CH.Field__c LIKE '%wner%') as owner_changes
+        FROM "Case" C
+        WHERE 1=1 {date_start_cond}
+    ),
+    owned_count AS (
+        SELECT OwnerId as agent, COUNT(*) as cnt FROM cases_in_range GROUP BY OwnerId
+    ),
+    transferred_out_count AS (
+        SELECT CH.OldValue__c as agent, COUNT(DISTINCT CH.CaseId__c) as cnt
+        FROM CaseHistory__c CH
+        JOIN cases_in_range CI ON CH.CaseId__c = CI.Id
+        WHERE CH.Field__c LIKE '%wner%' AND CH.OldValue__c != '' AND CH.OldValue__c != CI.OwnerId
+        GROUP BY CH.OldValue__c
+    ),
+    managed_total AS (
+        SELECT agent, SUM(cnt) as total FROM (
+            SELECT agent, cnt FROM owned_count
+            UNION ALL
+            SELECT agent, cnt FROM transferred_out_count
+        ) GROUP BY agent
+    ),
+    handle_times AS (
+        SELECT OwnerId as agent,
+               AVG(julianday(substr(ClosedDate,1,19)) - julianday(substr(CreatedDate,1,19))) as avg_ht
+        FROM cases_in_range
+        WHERE ClosedDate IS NOT NULL AND owner_changes <= 1
+        GROUP BY OwnerId
+    )
+    SELECT mt.agent as OwnerId, ht.avg_ht, mt.total
+    FROM managed_total mt
+    JOIN handle_times ht ON ht.agent = mt.agent
+    WHERE mt.total > {threshold}
+    ORDER BY ht.avg_ht {direction}
     LIMIT 1
     '''
 
@@ -174,16 +203,16 @@ def handle_handle_time(question: str, db: CRMDatabase, ref_date: str) -> str | N
         if owner_id:
             return owner_id
 
-    # Fallback: without transfer exclusion
+    # Fallback: simple query without transfer logic
     sql2 = f'''
-    SELECT C.OwnerId,
-           AVG(julianday(substr(C.ClosedDate,1,19)) - julianday(substr(C.CreatedDate,1,19))) as avg_handle_time,
-           COUNT(*) as case_count
-    FROM "Case" C
-    WHERE C.ClosedDate IS NOT NULL
-    GROUP BY C.OwnerId
+    SELECT OwnerId,
+           AVG(julianday(substr(ClosedDate,1,19)) - julianday(substr(CreatedDate,1,19))) as avg_ht,
+           COUNT(*) as cnt
+    FROM "Case"
+    WHERE ClosedDate IS NOT NULL
+    GROUP BY OwnerId
     HAVING COUNT(*) > {threshold}
-    ORDER BY avg_handle_time {direction}
+    ORDER BY avg_ht {direction}
     LIMIT 1
     '''
     result = db.execute_query(sql2)
@@ -194,23 +223,29 @@ def handle_handle_time(question: str, db: CRMDatabase, ref_date: str) -> str | N
 
 
 def handle_sales_cycle(question: str, db: CRMDatabase, ref_date: str) -> str | None:
-    """Deterministic handler for sales_cycle_understanding category."""
+    """Deterministic handler for sales_cycle_understanding category.
+
+    Policy: sales cycle = days between Opportunity.CreatedDate and Contract.CompanySignedDate
+    Join: Opportunity.ContractID__c = Contract.Id
+    """
     time_filter = _extract_time_filter(question, ref_date)
     direction = _extract_direction(question)
 
-    where_parts = ['CloseDate IS NOT NULL']
+    where_parts = ['CT.CompanySignedDate IS NOT NULL']
     if time_filter:
-        where_parts.append(time_filter)
+        where_parts.append(time_filter.replace(
+            "substr(CreatedDate,1,10)", "substr(O.CreatedDate,1,10)"))
 
     where_clause = " AND ".join(where_parts)
 
     sql = f'''
-    SELECT OwnerId,
-           AVG(julianday(substr(CloseDate,1,19)) - julianday(substr(CreatedDate,1,19))) as avg_cycle,
+    SELECT O.OwnerId,
+           AVG(julianday(CT.CompanySignedDate) - julianday(substr(O.CreatedDate,1,19))) as avg_cycle,
            COUNT(*) as opp_count
-    FROM Opportunity
+    FROM Opportunity O
+    JOIN Contract CT ON O.ContractID__c = CT.Id
     WHERE {where_clause}
-    GROUP BY OwnerId
+    GROUP BY O.OwnerId
     HAVING COUNT(*) > 0
     ORDER BY avg_cycle {direction}
     LIMIT 1
@@ -224,28 +259,14 @@ def handle_sales_cycle(question: str, db: CRMDatabase, ref_date: str) -> str | N
         if owner_id:
             return owner_id
 
-    # Fallback without date filter
-    if time_filter:
-        sql_fallback = f'''
-        SELECT OwnerId,
-               AVG(julianday(substr(CloseDate,1,19)) - julianday(substr(CreatedDate,1,19))) as avg_cycle,
-               COUNT(*) as opp_count
-        FROM Opportunity
-        WHERE CloseDate IS NOT NULL
-        GROUP BY OwnerId
-        HAVING COUNT(*) > 0
-        ORDER BY avg_cycle {direction}
-        LIMIT 1
-        '''
-        result = db.execute_query(sql_fallback)
-        if result["success"] and result["data"]:
-            return result["data"][0].get("OwnerId")
-
     return None
 
 
 def handle_conversion_rate(question: str, db: CRMDatabase, ref_date: str) -> str | None:
-    """Deterministic handler for conversion_rate_comprehension category."""
+    """Deterministic handler for conversion_rate_comprehension category.
+
+    Policy: conversion = leads converted within the time window (ConvertedDate <= ref_date).
+    """
     time_filter = _extract_time_filter(question, ref_date)
     direction = _extract_direction(question)
 
@@ -257,12 +278,12 @@ def handle_conversion_rate(question: str, db: CRMDatabase, ref_date: str) -> str
 
     sql = f'''
     SELECT OwnerId,
-           CAST(SUM(CASE WHEN IsConverted = 'true' THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as conv_rate,
+           CAST(SUM(CASE WHEN IsConverted = 1 AND substr(ConvertedDate,1,10) <= '{ref_date}' THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) as conv_rate,
            COUNT(*) as lead_count
     FROM Lead
     {where_clause}
     GROUP BY OwnerId
-    HAVING COUNT(*) > 0
+    HAVING COUNT(*) >= 3
     ORDER BY conv_rate {direction}
     LIMIT 1
     '''
