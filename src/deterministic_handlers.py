@@ -34,10 +34,23 @@ def _extract_time_filter(question: str, ref_date: str) -> str:
     def _rel(offset: str) -> str:
         return f"{C} >= date('{ref_date}', '{offset}') AND {C} <= '{ref_date}'"
 
-    # "past N quarters" / "last N quarters" (digit)
+    # "past N quarters" / "last N quarters" (digit) — align to quarter boundaries
     m = re.search(r"(?:past|last|over the (?:past|last))\s+(\d+)\s+quarter", q)
     if m:
-        return _rel(f"-{int(m.group(1)) * 3} months")
+        n = int(m.group(1))
+        # Align to quarter start: Q1=01, Q2=04, Q3=07, Q4=10
+        month = int(ref_date[5:7])
+        q_start_month = ((month - 1) // 3) * 3 + 1
+        yr = int(ref_date[:4])
+        # Go back N quarters from current quarter start
+        total_months_back = n * 3
+        start_month = q_start_month - total_months_back
+        start_year = yr
+        while start_month <= 0:
+            start_month += 12
+            start_year -= 1
+        start_date = f"{start_year}-{start_month:02d}-01"
+        return f"{C} >= '{start_date}' AND {C} <= '{ref_date}'"
 
     # "past N months" (digit)
     m = re.search(r"(?:past|last|over the (?:past|last))\s+(\d+)\s+month", q)
@@ -55,7 +68,17 @@ def _extract_time_filter(question: str, ref_date: str) -> str:
         n = word_nums[m.group(1)]
         unit = m.group(2)
         if unit == "quarter":
-            return _rel(f"-{n * 3} months")
+            month = int(ref_date[5:7])
+            q_start_month = ((month - 1) // 3) * 3 + 1
+            yr = int(ref_date[:4])
+            total_months_back = n * 3
+            start_month = q_start_month - total_months_back
+            start_year = yr
+            while start_month <= 0:
+                start_month += 12
+                start_year -= 1
+            start_date = f"{start_year}-{start_month:02d}-01"
+            return f"{C} >= '{start_date}' AND {C} <= '{ref_date}'"
         elif unit == "month":
             return _rel(f"-{n} months")
         elif unit == "week":
@@ -240,11 +263,12 @@ def handle_sales_cycle(question: str, db: CRMDatabase, ref_date: str) -> str | N
 
     sql = f'''
     SELECT O.OwnerId,
-           AVG(julianday(CT.CompanySignedDate) - julianday(substr(O.CreatedDate,1,19))) as avg_cycle,
+           AVG(julianday(COALESCE(CT.CompanySignedDate, O.CloseDate)) - julianday(substr(O.CreatedDate,1,19))) as avg_cycle,
            COUNT(*) as opp_count
     FROM Opportunity O
-    JOIN Contract CT ON O.ContractID__c = CT.Id
+    LEFT JOIN Contract CT ON O.ContractID__c = CT.Id
     WHERE {where_clause}
+      AND COALESCE(CT.CompanySignedDate, O.CloseDate) IS NOT NULL
     GROUP BY O.OwnerId
     HAVING COUNT(*) > 0
     ORDER BY avg_cycle {direction}
@@ -283,8 +307,8 @@ def handle_conversion_rate(question: str, db: CRMDatabase, ref_date: str) -> str
     FROM Lead
     {where_clause}
     GROUP BY OwnerId
-    HAVING COUNT(*) >= 3
-    ORDER BY conv_rate {direction}
+    HAVING COUNT(*) > 0
+    ORDER BY conv_rate {direction}, lead_count DESC
     LIMIT 1
     '''
 
@@ -373,28 +397,54 @@ def handle_best_region(question: str, db: CRMDatabase, ref_date: str) -> str | N
 
 
 def handle_transfer_count(question: str, db: CRMDatabase, ref_date: str) -> str | None:
-    """Deterministic handler for transfer_count category."""
+    """Deterministic handler for transfer_count category.
+
+    Policy:
+    - Transfer from A→B adds to A's transfer count (OldValue__c = A)
+    - 'managed cases' = cases owned + cases transferred to agent (same as handle_time)
+    """
     time_filter = _extract_time_filter(question, ref_date)
     threshold = _extract_threshold(question)
     direction = _extract_direction(question)
 
-    # Transfer = OwnerId changes tracked in CaseHistory__c
-    where_parts = ["CH.Field__c LIKE '%wner%'"]
+    date_cond = ""
     if time_filter:
-        where_parts.append(time_filter.replace("substr(CreatedDate,1,10)", "substr(CH.CreatedDate,1,10)"))
-
-    where_clause = " AND ".join(where_parts)
+        date_cond = "AND " + time_filter.replace(
+            "substr(CreatedDate,1,10)", "substr(C.CreatedDate,1,10)")
 
     sql = f'''
-    SELECT C.OwnerId,
-           COUNT(CH.Id) as transfer_count,
-           COUNT(DISTINCT C.Id) as case_count
-    FROM CaseHistory__c CH
-    JOIN "Case" C ON CH.CaseId__c = C.Id
-    WHERE {where_clause}
-    GROUP BY C.OwnerId
-    HAVING COUNT(DISTINCT C.Id) > {threshold}
-    ORDER BY transfer_count {direction}
+    WITH cases_in_range AS (
+        SELECT C.Id, C.OwnerId
+        FROM "Case" C
+        WHERE 1=1 {date_cond}
+    ),
+    managed AS (
+        SELECT OwnerId as agent_id, Id FROM cases_in_range
+        UNION
+        SELECT CH.OldValue__c as agent_id, CI.Id
+        FROM cases_in_range CI
+        JOIN CaseHistory__c CH ON CH.CaseId__c = CI.Id
+        WHERE CH.Field__c LIKE '%wner%' AND CH.OldValue__c != '' AND CH.OldValue__c != CI.OwnerId
+    ),
+    transfer_counts AS (
+        SELECT CH.OldValue__c as agent_id,
+               COUNT(*) as transfers
+        FROM CaseHistory__c CH
+        JOIN cases_in_range CI ON CH.CaseId__c = CI.Id
+        WHERE CH.Field__c LIKE '%wner%' AND CH.OldValue__c != ''
+        GROUP BY CH.OldValue__c
+    ),
+    managed_total AS (
+        SELECT agent_id, COUNT(DISTINCT Id) as managed_count
+        FROM managed GROUP BY agent_id
+    )
+    SELECT mt.agent_id as OwnerId,
+           COALESCE(tc.transfers, 0) as transfer_count,
+           mt.managed_count
+    FROM managed_total mt
+    LEFT JOIN transfer_counts tc ON tc.agent_id = mt.agent_id
+    WHERE mt.managed_count > {threshold}
+    ORDER BY COALESCE(tc.transfers, 0) {direction}
     LIMIT 1
     '''
 
@@ -409,6 +459,70 @@ def handle_transfer_count(question: str, db: CRMDatabase, ref_date: str) -> str 
     return None
 
 
+def handle_lead_routing(question: str, db: CRMDatabase, ref_date: str, context: str = "") -> str | None:
+    """Deterministic handler for lead_routing category.
+
+    Policy from context:
+    1. Territory match: find territory whose description contains the lead's region
+    2. Quote success: among agents in that territory, highest accepted quotes
+    3. Workload balance: tiebreak by fewest unconverted leads
+    """
+    # Extract lead region from context
+    m = re.search(r"Lead'?s?\s+region:?\s*([A-Z]{2})", context)
+    if not m:
+        return None
+    region = m.group(1)
+
+    # Step 1: Find matching territory
+    result = db.execute_query("SELECT Id, Description FROM Territory2")
+    if not result["success"]:
+        return None
+
+    territory_id = None
+    for row in result["data"]:
+        if region in row.get("Description", ""):
+            territory_id = row["Id"]
+            break
+    if not territory_id:
+        return None
+
+    # Step 2: Get agents in territory
+    result = db.execute_query(
+        f"SELECT UserId FROM UserTerritory2Association WHERE Territory2Id = '{territory_id}'"
+    )
+    if not result["success"] or not result["data"]:
+        return None
+    agent_ids = [row["UserId"] for row in result["data"]]
+
+    # Step 3: Count accepted quotes per agent + open leads
+    best_agent = None
+    best_quotes = -1
+    best_open_leads = float("inf")
+
+    for aid in agent_ids:
+        q_result = db.execute_query(f'''
+            SELECT COUNT(*) as cnt FROM Quote Q
+            JOIN Opportunity O ON Q.OpportunityId = O.Id
+            WHERE O.OwnerId = '{aid}' AND Q.Status = 'Accepted'
+        ''')
+        quotes = q_result["data"][0]["cnt"] if q_result["success"] and q_result["data"] else 0
+
+        l_result = db.execute_query(f'''
+            SELECT COUNT(*) as cnt FROM Lead
+            WHERE OwnerId = '{aid}' AND IsConverted = 0
+        ''')
+        open_leads = l_result["data"][0]["cnt"] if l_result["success"] and l_result["data"] else 0
+
+        if quotes > best_quotes or (quotes == best_quotes and open_leads < best_open_leads):
+            best_agent = aid
+            best_quotes = quotes
+            best_open_leads = open_leads
+
+    if best_agent:
+        logger.info(f"lead_routing: region={region} territory={territory_id} agent={best_agent} quotes={best_quotes} leads={best_open_leads}")
+    return best_agent
+
+
 # ── Registry ─────────────────────────────────────────────────────
 
 DETERMINISTIC_HANDLERS = {
@@ -418,6 +532,7 @@ DETERMINISTIC_HANDLERS = {
     "sales_amount_understanding": handle_sales_amount,
     "best_region_identification": handle_best_region,
     "transfer_count": handle_transfer_count,
+    "lead_routing": handle_lead_routing,
 }
 
 
@@ -440,7 +555,12 @@ def try_deterministic(category: str, question: str, db: CRMDatabase, ref_date: s
     effective_ref = ctx_date or ref_date
 
     try:
-        answer = handler(question, db, effective_ref)
+        # Some handlers need context (e.g., lead_routing for region)
+        import inspect
+        if 'context' in inspect.signature(handler).parameters:
+            answer = handler(question, db, effective_ref, context=context)
+        else:
+            answer = handler(question, db, effective_ref)
         if answer:
             logger.info(f"Deterministic handler for {category} returned: {answer} (ref={effective_ref})")
         else:
