@@ -181,11 +181,17 @@ class Agent:
         tables = self.db.get_tables() if self.db and self.db.is_available else []
         category_guides = PROMPTS.get("category_guides", {})
         category_guide = category_guides.get(category, category_guides.get("_default", ""))
+
+        # Pre-compute reference date from DB so LLM doesn't need to query for it
+        ref_date = self._get_reference_date()
+
         system_msg = PROMPTS["base_prompt"].format(
             tables=", ".join(tables) if tables else "(no database available)",
             drift_section=drift_section,
             category_guide=category_guide,
         )
+        if ref_date:
+            system_msg += f"\n\n## IMPORTANT: Database reference date\nThe most recent data is from {ref_date}. Use this as 'today' for all date calculations. Example: 'past 4 quarters' = date('{ref_date}', '-12 months')."
 
         user_content = f"Question: {task.get('prompt', '')}"
         if task.get("persona"):
@@ -277,6 +283,22 @@ class Agent:
             final_answer = self._fallback_answer(last_response)
 
         return final_answer or "insufficient data"
+
+    def _get_reference_date(self) -> str:
+        """Get the most recent date in the database to use as reference for relative date calculations."""
+        if not self.db or not self.db.is_available:
+            return ""
+        try:
+            result = self.db.execute_query(
+                'SELECT MAX(CreatedDate) FROM "Case"'
+            )
+            if result["success"] and result["data"]:
+                max_date = list(result["data"][0].values())[0]
+                if max_date:
+                    return max_date[:10]  # Just the date part: YYYY-MM-DD
+        except Exception:
+            pass
+        return ""
 
     # ── LLM call ───────────────────────────────────────────────────────
 

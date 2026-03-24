@@ -20,7 +20,7 @@ base_prompt: |
   4. Use <describe> if unsure about columns
   5. For multiple values: [val1, val2, val3]
   6. When asked for "agent Id", return the OwnerId (= User.Id)
-  7. CRITICAL DATE RULE: Do NOT use date('now'). Data may be historical. First find the max date: SELECT MAX(CreatedDate) FROM "Case". Then calculate offsets from that date. Example: for "past 4 quarters" use WHERE CreatedDate >= date(max_date, '-12 months').
+  7. CRITICAL: Do NOT use date('now') — data is historical. Use the reference date provided below for all date math.
   {drift_section}
   {category_guide}
 
@@ -32,8 +32,7 @@ category_guides:
     Tables: "Case", "User"
     - Handle time = julianday(ClosedDate) - julianday(CreatedDate) in days
     - OwnerId = the agent (User.Id)
-    - FIRST: find max date with SELECT MAX(CreatedDate) FROM "Case"
-    - THEN: filter by CreatedDate >= date(max_date, '-N months')
+    - Use the reference date for date filtering
     - "past N quarters" = -N*3 months; "past N months" = -N months
     - ClosedDate IS NOT NULL required
     - GROUP BY OwnerId, HAVING COUNT(*) > threshold, ORDER BY avg
@@ -43,8 +42,7 @@ category_guides:
     Tables: "Case", OrderItem, Product2
     - Join: "Case" C JOIN OrderItem OI ON C.OrderItemId__c = OI.Id WHERE OI.Product2Id = '<id>'
     - Month: substr(C.CreatedDate, 6, 2) → convert number to name (01=January, etc.)
-    - FIRST: find max date with SELECT MAX(C.CreatedDate) FROM "Case" C JOIN OrderItem OI ON C.OrderItemId__c = OI.Id WHERE OI.Product2Id = '<id>'
-    - THEN: filter by C.CreatedDate >= date(max_date, '-N months')
+    - Use the reference date for date filtering
     - GROUP BY month, ORDER BY COUNT(*) DESC LIMIT 1
 
   lead_qualification: |
@@ -81,15 +79,15 @@ category_guides:
     - Region = Account.ShippingState (two-letter: CA, NY, TX, MI, etc.)
     - Join: "Case" C JOIN Account A ON C.AccountId = A.Id
     - For closure time: AVG(julianday(ClosedDate)-julianday(CreatedDate)), WHERE ClosedDate IS NOT NULL
-    - FIRST: find max date, THEN filter by date range relative to it
+    - Use the reference date for date filtering
     - GROUP BY A.ShippingState, ORDER BY metric
 
   conversion_rate_comprehension: |
     ## Task: Lead Conversion Rate
     Tables: Lead
     - Rate = SUM(CASE WHEN IsConverted='true' THEN 1 ELSE 0 END) / CAST(COUNT(*) AS FLOAT)
-    - FIRST: find max date with SELECT MAX(CreatedDate) FROM Lead
-    - THEN: GROUP BY OwnerId, filter by CreatedDate >= date(max_date, '-N months')
+    - Use the reference date for date filtering
+    - GROUP BY OwnerId
     - "past N quarters" = -N*3 months
     - Return the OwnerId (agent Id)
 
@@ -97,8 +95,7 @@ category_guides:
     ## Task: Sales Cycle Understanding
     Tables: Opportunity
     - Cycle time = julianday(CloseDate) - julianday(CreatedDate)
-    - FIRST: find max date with SELECT MAX(CreatedDate) FROM Opportunity
-    - THEN: filter by CreatedDate >= date(max_date, '-N months'), CloseDate IS NOT NULL
+    - Use the reference date for date filtering; CloseDate IS NOT NULL
     - GROUP BY OwnerId, ORDER BY avg cycle time
     - "past N weeks" = -N*7 days; "past N quarters" = -N*3 months
 
@@ -108,8 +105,7 @@ category_guides:
     - Sales total: SUM(OI.UnitPrice * OI.Quantity) or SUM(OI.UnitPrice)
     - Join: "Order" O JOIN OrderItem OI ON OI.OrderId = O.Id
     - Agent = O.OwnerId
-    - FIRST: find max date with SELECT MAX(EffectiveDate) FROM "Order"
-    - THEN: filter by O.EffectiveDate >= date(max_date, '-N months')
+    - Use the reference date for date filtering on O.EffectiveDate
     - GROUP BY O.OwnerId, ORDER BY total DESC/ASC
 
   top_issue_identification: |
