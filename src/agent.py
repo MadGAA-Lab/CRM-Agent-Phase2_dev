@@ -27,6 +27,7 @@ from context_filter import ContextFilter
 from privacy_guard import PrivacyGuard
 from llm_client import LLMClient
 from time_budget import TimeBudget
+from deterministic_handlers import try_deterministic
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,18 @@ class Agent:
         if self.privacy_guard.is_privacy_request(task):
             logger.info("Privacy category — returning rejection")
             return PROMPTS.get("privacy_rejection", self.privacy_guard.get_rejection()).strip()
+
+        # Fast path: deterministic SQL handlers (no LLM needed)
+        if self.db and self.db.is_available:
+            ref_date = self._get_reference_date()
+            det_answer = try_deterministic(
+                category, task.get("prompt", ""),
+                self.db, ref_date,
+                context=task.get("required_context", ""),
+            )
+            if det_answer:
+                logger.info(f"Deterministic answer for {category}: {det_answer}")
+                return det_answer
 
         # Pre-processing: drift detection + context cleaning
         entropy = task.get("entropy", {})
