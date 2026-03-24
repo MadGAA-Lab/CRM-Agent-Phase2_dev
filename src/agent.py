@@ -177,11 +177,14 @@ class Agent:
             for drifted, canonical in reverse_map.items():
                 cleaned_context = cleaned_context.replace(drifted, canonical)
 
-        # Build ReAct messages
+        # Build ReAct messages with category-specific guide
         tables = self.db.get_tables() if self.db and self.db.is_available else []
-        system_msg = PROMPTS["system_prompt"].format(
+        category_guides = PROMPTS.get("category_guides", {})
+        category_guide = category_guides.get(category, category_guides.get("_default", ""))
+        system_msg = PROMPTS["base_prompt"].format(
             tables=", ".join(tables) if tables else "(no database available)",
             drift_section=drift_section,
+            category_guide=category_guide,
         )
 
         user_content = f"Question: {task.get('prompt', '')}"
@@ -357,10 +360,11 @@ class Agent:
         if respond:
             return respond.group(1).strip()
 
-        # Look for Salesforce ID
-        id_match = re.search(r"\b([0-9a-zA-Z]{15,18})\b", response)
-        if id_match:
-            return id_match.group(1)
+        # Look for Salesforce ID (specific prefixes: 005=User, 00Q=Lead, 01t=Product, etc.)
+        # Salesforce IDs: 15 or 18 chars, start with [0-9a-zA-Z]{3} prefix + alphanumeric
+        sf_ids = re.findall(r"\b([0-9]{3}[A-Za-z][A-Za-z0-9]{11,14})\b", response)
+        if sf_ids:
+            return sf_ids[-1]  # last one is usually the final answer
 
         # Look for month name
         months = [
@@ -376,15 +380,12 @@ class Agent:
             if factor.lower() in response.lower():
                 return factor
 
-        # Look for quoted strings
-        quoted = re.findall(r"['\"]([^'\"]+)['\"]", response)
-        if quoted:
-            return quoted[-1]
-
-        # Last non-empty line
-        lines = [ln.strip() for ln in response.strip().splitlines() if ln.strip()]
-        if lines:
-            return lines[-1][:200]
+        # Look for quoted strings (but filter out SQL fragments)
+        quoted = re.findall(r"['\"]([^'\"]{2,60})['\"]", response)
+        sql_keywords = {"select", "from", "where", "join", "case", "order", "group", "null", "not", "and", "true", "false"}
+        filtered = [q for q in quoted if q.lower() not in sql_keywords and not q.startswith("0")]
+        if filtered:
+            return filtered[-1]
 
         return "None"
 

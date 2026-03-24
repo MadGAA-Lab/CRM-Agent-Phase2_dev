@@ -1,57 +1,207 @@
 {
   "tables": {
     "Account": {
-      "columns": ["Id", "Name", "BillingState", "BillingCity", "BillingCountry", "Industry", "Type", "OwnerId", "CreatedDate"],
+      "columns": ["Id", "Name", "Phone", "Industry", "Description", "NumberOfEmployees", "ShippingState"],
       "primary_key": "Id",
+      "row_count": 101,
       "description": "Company/organization accounts"
     },
-    "Contact": {
-      "columns": ["Id", "FirstName", "LastName", "Name", "Email", "Phone", "AccountId", "OwnerId", "Title", "Department", "CreatedDate"],
+    "Case": {
+      "columns": ["Id", "Priority", "Subject", "Description", "Status", "ContactId", "CreatedDate", "ClosedDate", "OrderItemId__c", "IssueId__c", "AccountId", "OwnerId"],
       "primary_key": "Id",
+      "row_count": 153,
+      "foreign_keys": {"ContactId": "Contact.Id", "AccountId": "Account.Id", "OrderItemId__c": "OrderItem.Id", "IssueId__c": "Issue__c.Id", "OwnerId": "User.Id"},
+      "description": "Customer support cases"
+    },
+    "CaseHistory__c": {
+      "columns": ["Id", "CaseId__c", "OldValue__c", "NewValue__c", "CreatedDate", "Field__c"],
+      "primary_key": "Id",
+      "row_count": 393,
+      "description": "Case field change history (transfers, status changes)"
+    },
+    "Contact": {
+      "columns": ["Id", "FirstName", "LastName", "Email", "AccountId"],
+      "primary_key": "Id",
+      "row_count": 886,
       "foreign_keys": {"AccountId": "Account.Id"},
       "description": "Individual contacts linked to accounts"
     },
-    "Lead": {
-      "columns": ["Id", "FirstName", "LastName", "Name", "Status", "OwnerId", "Company", "Email", "Phone", "LeadSource", "Rating", "ConvertedAccountId", "ConvertedContactId", "ConvertedDate", "CreatedDate"],
+    "Contract": {
+      "columns": ["Id", "AccountId", "Status", "StartDate", "CustomerSignedDate", "CompanySignedDate", "Description", "ContractTerm"],
       "primary_key": "Id",
+      "row_count": 163,
+      "foreign_keys": {"AccountId": "Account.Id"},
+      "description": "Customer contracts"
+    },
+    "EmailMessage": {
+      "columns": ["Id", "Subject", "TextBody", "ParentId", "FromAddress", "ToIds", "MessageDate", "RelatedToId"],
+      "primary_key": "Id",
+      "row_count": 5686,
+      "description": "Email messages linked to cases/records"
+    },
+    "Event": {
+      "columns": ["Id", "WhatId", "OwnerId", "StartDateTime", "Subject", "Description", "DurationInMinutes", "Location", "IsAllDayEvent"],
+      "primary_key": "Id",
+      "row_count": 54,
+      "foreign_keys": {"OwnerId": "User.Id"},
+      "description": "Calendar events"
+    },
+    "Issue__c": {
+      "columns": ["Id", "Name", "Description__c"],
+      "primary_key": "Id",
+      "row_count": 15,
+      "description": "Known issues/problems"
+    },
+    "Knowledge__kav": {
+      "columns": ["Id", "Title", "FAQ_Answer__c", "Summary", "UrlName"],
+      "primary_key": "Id",
+      "row_count": 194,
+      "description": "Knowledge articles and FAQs"
+    },
+    "Lead": {
+      "columns": ["Id", "FirstName", "LastName", "Email", "Phone", "Company", "Status", "ConvertedContactId", "ConvertedAccountId", "Title", "CreatedDate", "ConvertedDate", "IsConverted", "OwnerId"],
+      "primary_key": "Id",
+      "row_count": 1465,
+      "foreign_keys": {"OwnerId": "User.Id", "ConvertedAccountId": "Account.Id"},
       "description": "Sales leads and prospects"
     },
-    "Case": {
-      "columns": ["Id", "CaseNumber", "Subject", "Description", "Status", "Priority", "Origin", "Type", "AccountId", "ContactId", "OwnerId", "OrderItemId__c", "CreatedDate", "ClosedDate", "IsClosed"],
+    "LiveChatTranscript": {
+      "columns": ["Id", "CaseId", "AccountId", "OwnerId", "Body", "EndTime", "LiveChatVisitorId", "ContactId"],
       "primary_key": "Id",
-      "foreign_keys": {"AccountId": "Account.Id", "ContactId": "Contact.Id", "OrderItemId__c": "OrderItem.Id"},
-      "description": "Customer support cases"
+      "row_count": 58,
+      "foreign_keys": {"CaseId": "Case.Id", "AccountId": "Account.Id", "OwnerId": "User.Id"},
+      "description": "Live chat transcripts"
     },
     "Opportunity": {
-      "columns": ["Id", "Name", "StageName", "Amount", "CloseDate", "Probability", "AccountId", "OwnerId", "Type", "LeadSource", "ForecastCategory", "IsClosed", "IsWon", "CreatedDate"],
+      "columns": ["Id", "ContractID__c", "AccountId", "ContactId", "OwnerId", "Probability", "Amount", "StageName", "Name", "Description", "CreatedDate", "CloseDate"],
       "primary_key": "Id",
-      "foreign_keys": {"AccountId": "Account.Id"},
+      "row_count": 1170,
+      "foreign_keys": {"AccountId": "Account.Id", "OwnerId": "User.Id", "ContactId": "Contact.Id"},
       "description": "Sales opportunities/deals"
     },
-    "OrderItem": {
-      "columns": ["Id", "OrderId", "Product2Id", "Quantity", "UnitPrice", "TotalPrice", "Description"],
+    "OpportunityLineItem": {
+      "columns": ["Id", "OpportunityId", "Product2Id", "PricebookEntryId", "Quantity", "TotalPrice"],
       "primary_key": "Id",
-      "foreign_keys": {"Product2Id": "Product2.Id"},
+      "row_count": 4926,
+      "foreign_keys": {"OpportunityId": "Opportunity.Id", "Product2Id": "Product2.Id"},
+      "description": "Products linked to opportunities"
+    },
+    "Order": {
+      "columns": ["Id", "AccountId", "Status", "EffectiveDate", "Pricebook2Id", "OwnerId"],
+      "primary_key": "Id",
+      "row_count": 163,
+      "foreign_keys": {"AccountId": "Account.Id", "OwnerId": "User.Id"},
+      "description": "Customer orders"
+    },
+    "OrderItem": {
+      "columns": ["Id", "OrderId", "Product2Id", "Quantity", "UnitPrice", "PriceBookEntryId"],
+      "primary_key": "Id",
+      "row_count": 689,
+      "foreign_keys": {"OrderId": "Order.Id", "Product2Id": "Product2.Id"},
       "description": "Line items within orders"
     },
-    "Product2": {
-      "columns": ["Id", "Name", "ProductCode", "Description", "Family", "IsActive"],
+    "Pricebook2": {
+      "columns": ["Id", "Name", "Description", "IsActive", "ValidFrom", "ValidTo"],
       "primary_key": "Id",
+      "row_count": 2,
+      "description": "Price books"
+    },
+    "PricebookEntry": {
+      "columns": ["Id", "Pricebook2Id", "Product2Id", "UnitPrice"],
+      "primary_key": "Id",
+      "row_count": 50,
+      "foreign_keys": {"Pricebook2Id": "Pricebook2.Id", "Product2Id": "Product2.Id"},
+      "description": "Product prices in price books"
+    },
+    "Product2": {
+      "columns": ["Id", "Name", "Description", "IsActive", "External_ID__c"],
+      "primary_key": "Id",
+      "row_count": 51,
       "description": "Product catalog"
     },
-    "VoiceCallTranscript__c": {
-      "columns": ["Id", "Body__c", "LeadId__c", "Duration__c", "CallType__c", "CreatedDate"],
+    "ProductCategory": {
+      "columns": ["Id", "Name", "CatalogId"],
       "primary_key": "Id",
-      "foreign_keys": {"LeadId__c": "Lead.Id"},
-      "description": "Call transcripts linked to leads"
+      "row_count": 10,
+      "description": "Product categories"
+    },
+    "ProductCategoryProduct": {
+      "columns": ["Id", "ProductCategoryId", "ProductId"],
+      "primary_key": "Id",
+      "row_count": 100,
+      "foreign_keys": {"ProductCategoryId": "ProductCategory.Id", "ProductId": "Product2.Id"},
+      "description": "Product-to-category mappings"
+    },
+    "Quote": {
+      "columns": ["Id", "OpportunityId", "AccountId", "ContactId", "Name", "Description", "Status", "CreatedDate", "ExpirationDate"],
+      "primary_key": "Id",
+      "row_count": 704,
+      "foreign_keys": {"OpportunityId": "Opportunity.Id", "AccountId": "Account.Id"},
+      "description": "Sales quotes"
+    },
+    "QuoteLineItem": {
+      "columns": ["Id", "QuoteId", "OpportunityLineItemId", "Product2Id", "PricebookEntryId", "Quantity", "UnitPrice", "Discount", "TotalPrice"],
+      "primary_key": "Id",
+      "row_count": 2966,
+      "foreign_keys": {"QuoteId": "Quote.Id", "Product2Id": "Product2.Id"},
+      "description": "Line items within quotes"
+    },
+    "Task": {
+      "columns": ["Id", "WhatId", "OwnerId", "Priority", "Status", "ActivityDate", "Subject", "Description"],
+      "primary_key": "Id",
+      "row_count": 4783,
+      "foreign_keys": {"OwnerId": "User.Id"},
+      "description": "Activities/tasks linked to records"
+    },
+    "Territory2": {
+      "columns": ["Id", "Name", "Description"],
+      "primary_key": "Id",
+      "row_count": 10,
+      "description": "Sales territories"
+    },
+    "User": {
+      "columns": ["Id", "FirstName", "LastName", "Email", "Phone", "Username", "Alias", "LanguageLocaleKey", "EmailEncodingKey", "TimeZoneSidKey", "LocaleSidKey"],
+      "primary_key": "Id",
+      "row_count": 212,
+      "description": "System users (agents/reps)"
+    },
+    "UserTerritory2Association": {
+      "columns": ["Id", "UserId", "Territory2Id"],
+      "primary_key": "Id",
+      "row_count": 184,
+      "foreign_keys": {"UserId": "User.Id", "Territory2Id": "Territory2.Id"},
+      "description": "User-to-territory assignments"
+    },
+    "VoiceCallTranscript__c": {
+      "columns": ["Id", "OpportunityId__c", "LeadId__c", "Body__c", "CreatedDate", "EndTime__c"],
+      "primary_key": "Id",
+      "row_count": 4033,
+      "foreign_keys": {"LeadId__c": "Lead.Id", "OpportunityId__c": "Opportunity.Id"},
+      "description": "Call transcripts linked to leads and opportunities"
     }
   },
   "relationships": [
     {"from": "Case.OrderItemId__c", "to": "OrderItem.Id", "description": "Case to order item (then to product)"},
-    {"from": "OrderItem.Product2Id", "to": "Product2.Id", "description": "Order item to product"},
+    {"from": "Case.IssueId__c", "to": "Issue__c.Id", "description": "Case to known issue"},
+    {"from": "Case.OwnerId", "to": "User.Id", "description": "Case to assigned agent"},
     {"from": "Case.AccountId", "to": "Account.Id", "description": "Case to company"},
-    {"from": "Lead.Id", "to": "VoiceCallTranscript__c.LeadId__c", "description": "Lead to call transcripts"},
+    {"from": "CaseHistory__c.CaseId__c", "to": "Case.Id", "description": "Case history to case"},
+    {"from": "OrderItem.Product2Id", "to": "Product2.Id", "description": "Order item to product"},
+    {"from": "OrderItem.OrderId", "to": "Order.Id", "description": "Order item to order"},
+    {"from": "Order.OwnerId", "to": "User.Id", "description": "Order to agent"},
+    {"from": "Lead.OwnerId", "to": "User.Id", "description": "Lead to assigned agent"},
+    {"from": "VoiceCallTranscript__c.LeadId__c", "to": "Lead.Id", "description": "Transcript to lead"},
+    {"from": "VoiceCallTranscript__c.OpportunityId__c", "to": "Opportunity.Id", "description": "Transcript to opportunity"},
+    {"from": "Opportunity.OwnerId", "to": "User.Id", "description": "Opportunity to assigned agent"},
+    {"from": "Opportunity.AccountId", "to": "Account.Id", "description": "Opportunity to company"},
+    {"from": "OpportunityLineItem.OpportunityId", "to": "Opportunity.Id", "description": "Opp line item to opportunity"},
+    {"from": "OpportunityLineItem.Product2Id", "to": "Product2.Id", "description": "Opp line item to product"},
+    {"from": "Quote.OpportunityId", "to": "Opportunity.Id", "description": "Quote to opportunity"},
+    {"from": "QuoteLineItem.QuoteId", "to": "Quote.Id", "description": "Quote line item to quote"},
+    {"from": "QuoteLineItem.Product2Id", "to": "Product2.Id", "description": "Quote line item to product"},
     {"from": "Contact.AccountId", "to": "Account.Id", "description": "Contact to company"},
-    {"from": "Opportunity.AccountId", "to": "Account.Id", "description": "Deal to company"}
+    {"from": "Task.OwnerId", "to": "User.Id", "description": "Task to assigned user"},
+    {"from": "UserTerritory2Association.UserId", "to": "User.Id", "description": "User to territory"},
+    {"from": "UserTerritory2Association.Territory2Id", "to": "Territory2.Id", "description": "Territory assignment"}
   ]
 }
