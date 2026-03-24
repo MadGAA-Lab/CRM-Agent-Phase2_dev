@@ -4,22 +4,6 @@ A CRM agent for Berkeley RDI **AgentX-AgentBeats Phase 2** competition. Evaluate
 
 > 繁體中文說明請見 [README.zh-TW.md](README.zh-TW.md)
 
-## Benchmark Results
-
-| Metric | Score |
-|---|---|
-| **Accuracy** | 75% |
-| **7D Average** | 86.7 |
-| **FUNCTIONAL** | 82.5 |
-| **DRIFT_ADAPTATION** | 75.0 |
-| **TOKEN_EFFICIENCY** | 99.8 |
-| **QUERY_EFFICIENCY** | 100.0 |
-| **ERROR_RECOVERY** | 82.5 |
-| **TRAJECTORY_EFFICIENCY** | 100.0 |
-| **HALLUCINATION_RATE** | 80.0 |
-
-Evaluated with `ghcr.io/rkstu/entropic-crmarena-green:latest` at medium drift / medium rot.
-
 ## Architecture
 
 The agent uses a **hybrid deterministic + LLM** architecture:
@@ -50,7 +34,9 @@ Incoming A2A Task
 
 ### Why Hybrid?
 
-Pure LLM SQL generation is unreliable — the LLM produces garbage answers (date fragments, column names) for structured queries. Pure deterministic misses edge cases. The hybrid approach:
+Pure LLM SQL generation is unreliable — the LLM produces garbage answers (date fragments, column names) for structured queries. 
+Pure deterministic misses edge cases. 
+The hybrid approach:
 
 - **Deterministic handlers** provide reliable, fast answers for well-defined categories (100% on lead_routing, 70% on handle_time)
 - **LLM fallback** handles the long tail — transcript analysis, policy reasoning, ambiguous queries
@@ -60,30 +46,30 @@ Pure LLM SQL generation is unreliable — the LLM produces garbage answers (date
 
 ```
 src/
-├── server.py                # A2A server (Uvicorn) + agent card
-├── executor.py              # A2A request handler with timeout
-├── agent.py                 # Pipeline orchestrator (privacy → drift → rot → route)
+├── server.py                 # A2A server (Uvicorn) + agent card
+├── executor.py               # A2A request handler with timeout
+├── agent.py                  # Pipeline orchestrator (privacy → drift → rot → route)
 ├── deterministic_handlers.py # SQL handlers for 7 structured categories
-├── privacy_guard.py         # Rule-based privacy rejection (2 categories)
-├── schema_introspector.py   # Drift mapping (low / medium / high)
-├── context_filter.py        # Rot note stripping + heuristic filtering
-├── crm_database.py          # Read-only SQLite wrapper with safety guards
-├── db_builder.py            # Database download from HuggingFace
-├── llm_client.py            # Dual-tier LLM client (primary + cheap fallback)
-├── time_budget.py           # Dynamic per-task timeout allocation
+├── privacy_guard.py          # Rule-based privacy rejection (2 categories)
+├── schema_introspector.py    # Drift mapping (low / medium / high)
+├── context_filter.py         # Rot note stripping + heuristic filtering
+├── crm_database.py           # Read-only SQLite wrapper with safety guards
+├── db_builder.py             # Database download from HuggingFace
+├── llm_client.py             # Dual-tier LLM client (primary + cheap fallback)
+├── time_budget.py            # Dynamic per-task timeout allocation
 └── messenger.py             # A2A messaging utilities
 config/
-├── schema.json              # Canonical CRM schema (27 tables, extracted from DB)
-└── prompts.yaml             # Category-routed prompt templates
+├── schema.json               # Canonical CRM schema (27 tables, extracted from DB)
+└── prompts.yaml              # Category-routed prompt templates
 data/
-└── crmarenapro_b2b_data.db  # SQLite database (downloaded at startup)
+└── crmarenapro_b2b_data.db   # SQLite database (downloaded at startup)
 tests/
-├── test_e2e_mock.py         # End-to-end mock tests
-├── test_privacy.py          # Privacy guard tests
-├── test_introspector.py     # Schema introspector tests
-├── test_context_filter.py   # Context filter tests
-├── test_time_budget.py      # Time budget tests
-└── test_agent.py            # A2A conformance tests
+├── test_e2e_mock.py          # End-to-end mock tests
+├── test_privacy.py           # Privacy guard tests
+├── test_introspector.py      # Schema introspector tests
+├── test_context_filter.py    # Context filter tests
+├── test_time_budget.py       # Time budget tests
+└── test_agent.py             # A2A conformance tests
 ```
 
 ### Deterministic Handlers
