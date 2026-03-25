@@ -586,6 +586,7 @@ async def handle_case_routing(question: str, db: CRMDatabase, ref_date: str,
         return None
 
     best_issue = None
+    match_text = f"{subject} {case_desc}"
 
     # Try LLM semantic matching first
     if llm_client:
@@ -598,7 +599,6 @@ async def handle_case_routing(question: str, db: CRMDatabase, ref_date: str,
 
     # Fallback: word overlap
     if not best_issue:
-        match_text = f"{subject} {case_desc}"
         scored = []
         for issue in issues_result["data"]:
             issue_text = f"{issue.get('Name', '')} {issue.get('Description__c', '')}"
