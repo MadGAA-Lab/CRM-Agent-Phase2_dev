@@ -443,9 +443,9 @@ class Agent:
         lines = [ln.strip() for ln in response.strip().splitlines() if ln.strip()]
         for line in reversed(lines):
             lower = line.lower()
-            if any(kw in lower for kw in ["select ", "from ", "where ", "join ", "group by", "order by", "<execute", "<describe"]):
+            if any(kw in lower for kw in ["select ", "from ", "where ", "join ", "group by", "order by", "<execute", "</execute", "<describe", "</describe", "<respond", "</respond"]):
                 continue
-            if "%" in line:
+            if "%" in line or line.startswith("<") or line.startswith("```"):
                 continue
             if len(line) < 200:
                 return line
