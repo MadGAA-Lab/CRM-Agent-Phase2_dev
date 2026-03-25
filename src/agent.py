@@ -157,10 +157,11 @@ class Agent:
         # Fast path: deterministic SQL handlers (no LLM needed)
         if self.db and self.db.is_available:
             ref_date = self._get_reference_date()
-            det_answer = try_deterministic(
+            det_answer = await try_deterministic(
                 category, task.get("prompt", ""),
                 self.db, ref_date,
                 context=task.get("required_context", ""),
+                llm_client=self.llm,
             )
             if det_answer:
                 logger.info(f"Deterministic answer for {category}: {det_answer}")
@@ -415,12 +416,31 @@ class Agent:
             if factor.lower() in response.lower():
                 return factor
 
-        # Look for quoted strings (but filter out SQL fragments)
+        # Look for quoted strings (but filter out SQL fragments and LIKE patterns)
         quoted = re.findall(r"['\"]([^'\"]{2,60})['\"]", response)
-        sql_keywords = {"select", "from", "where", "join", "case", "order", "group", "null", "not", "and", "true", "false"}
-        filtered = [q for q in quoted if q.lower() not in sql_keywords and not q.startswith("0")]
+        sql_keywords = {"select", "from", "where", "join", "case", "order", "group",
+                        "null", "not", "and", "true", "false", "like", "on", "as",
+                        "desc", "asc", "limit", "having", "count", "avg", "sum"}
+        filtered = [
+            q for q in quoted
+            if q.lower() not in sql_keywords
+            and not q.startswith("0")  # not a SF ID prefix
+            and "%" not in q  # not a LIKE pattern
+            and not re.match(r"^-?\d+\s+(month|day|week|quarter|year)", q)  # not a date offset
+        ]
         if filtered:
             return filtered[-1]
+
+        # Last non-empty line (but skip SQL-looking lines)
+        lines = [ln.strip() for ln in response.strip().splitlines() if ln.strip()]
+        for line in reversed(lines):
+            lower = line.lower()
+            if any(kw in lower for kw in ["select ", "from ", "where ", "join ", "group by", "order by", "<execute", "<describe"]):
+                continue
+            if "%" in line:
+                continue
+            if len(line) < 200:
+                return line
 
         return "None"
 

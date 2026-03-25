@@ -523,6 +523,163 @@ def handle_lead_routing(question: str, db: CRMDatabase, ref_date: str, context: 
     return best_agent
 
 
+def _word_overlap_score(text_a: str, text_b: str) -> float:
+    """Score similarity between two texts by word overlap (Jaccard-like)."""
+    stop_words = {"the", "a", "an", "is", "are", "in", "to", "of", "for", "and", "or",
+                  "with", "on", "by", "it", "its", "some", "their", "that", "this", "from"}
+    words_a = {w for w in re.findall(r"\w+", text_a.lower()) if w not in stop_words and len(w) > 2}
+    words_b = {w for w in re.findall(r"\w+", text_b.lower()) if w not in stop_words and len(w) > 2}
+    if not words_a or not words_b:
+        return 0.0
+    intersection = words_a & words_b
+    return len(intersection) / min(len(words_a), len(words_b))
+
+
+async def _llm_pick_issue(llm_client, subject: str, case_desc: str, issues: list[dict]) -> str | None:
+    """Use LLM to pick the most matching issue from a list. One tiny focused call."""
+    issue_lines = "\n".join(
+        f"{i+1}. [{iss['Id']}] {iss.get('Name', '')} — {(iss.get('Description__c', '') or '')[:100]}"
+        for i, iss in enumerate(issues)
+    )
+    prompt = (
+        f"Which issue is most similar to this case? Reply with ONLY the issue Id.\n\n"
+        f"Case Subject: {subject}\n"
+        f"Case Description: {case_desc[:200]}\n\n"
+        f"Issues:\n{issue_lines}\n\n"
+        f"Reply with ONLY the Id (e.g. a03Wt00000JqzSfIAJ)."
+    )
+    try:
+        response = await llm_client.call_cheap(prompt, max_tokens=64)
+        # Extract SF ID from response
+        id_match = re.search(r"\b(a03[A-Za-z0-9]{12,15})\b", response)
+        if id_match:
+            return id_match.group(1)
+    except Exception as e:
+        logger.warning(f"LLM issue match failed: {e}")
+    return None
+
+
+async def handle_case_routing(question: str, db: CRMDatabase, ref_date: str,
+                              context: str = "", llm_client=None) -> str | None:
+    """Hybrid handler for case_routing category.
+
+    Policy from context:
+    1. Issue Expertise: agent who closed most cases with the most similar issue
+    2. Product Expertise: tiebreak by most cases with the relevant product
+    3. Workload: tiebreak by fewest non-closed cases
+
+    Uses LLM for semantic issue matching, deterministic SQL for the rest.
+    """
+    # Extract case subject from the question
+    m = re.search(r"Case Subject:\s*(.+)", question)
+    if not m:
+        return None
+    subject = m.group(1).strip()
+
+    # Extract case description for additional context
+    desc_m = re.search(r"Case Description:\s*(.+?)(?:\n|$)", question, re.DOTALL)
+    case_desc = desc_m.group(1).strip() if desc_m else ""
+
+    # Step 1: Find most similar issue — use LLM if available, word overlap as fallback
+    issues_result = db.execute_query("SELECT Id, Name, Description__c FROM Issue__c")
+    if not issues_result["success"] or not issues_result["data"]:
+        return None
+
+    best_issue = None
+
+    # Try LLM semantic matching first
+    if llm_client:
+        try:
+            best_issue = await _llm_pick_issue(llm_client, subject, case_desc, issues_result["data"])
+            if best_issue:
+                logger.info(f"case_routing: LLM matched issue {best_issue}")
+        except Exception as e:
+            logger.warning(f"LLM issue match failed, falling back to word overlap: {e}")
+
+    # Fallback: word overlap
+    if not best_issue:
+        match_text = f"{subject} {case_desc}"
+        scored = []
+        for issue in issues_result["data"]:
+            issue_text = f"{issue.get('Name', '')} {issue.get('Description__c', '')}"
+            score = _word_overlap_score(match_text, issue_text)
+            scored.append((score, issue["Id"]))
+        scored.sort(key=lambda x: -x[0])
+        if scored and scored[0][0] > 0:
+            best_issue = scored[0][1]
+
+    if not best_issue:
+        return None
+
+    # Step 2: Count closed cases per agent for this issue
+    result = db.execute_query(f'''
+        SELECT OwnerId, COUNT(*) as cnt
+        FROM "Case"
+        WHERE IssueId__c = '{best_issue}' AND Status = 'Closed'
+        GROUP BY OwnerId
+        ORDER BY cnt DESC
+    ''')
+    if not result["success"] or not result["data"]:
+        return None
+
+    max_count = result["data"][0]["cnt"]
+    top_agents = [r["OwnerId"] for r in result["data"] if r["cnt"] == max_count]
+
+    if len(top_agents) == 1:
+        return top_agents[0]
+
+    # Step 3: Tiebreak by product expertise
+    # Find product from case description (look for product names in text)
+    products_result = db.execute_query("SELECT Id, Name FROM Product2")
+    matched_product = None
+    if products_result["success"]:
+        best_prod_score = 0
+        for prod in products_result["data"]:
+            pname = prod.get("Name", "")
+            if pname.lower() in match_text.lower():
+                matched_product = prod["Id"]
+                break
+            score = _word_overlap_score(match_text, pname)
+            if score > best_prod_score:
+                best_prod_score = score
+                matched_product = prod["Id"]
+
+    if matched_product and len(top_agents) > 1:
+        agent_ids_str = ",".join(f"'{a}'" for a in top_agents)
+        prod_result = db.execute_query(f'''
+            SELECT C.OwnerId, COUNT(*) as cnt
+            FROM "Case" C
+            JOIN OrderItem OI ON C.OrderItemId__c = OI.Id
+            WHERE OI.Product2Id = '{matched_product}'
+              AND C.OwnerId IN ({agent_ids_str})
+              AND C.Status = 'Closed'
+            GROUP BY C.OwnerId
+            ORDER BY cnt DESC
+        ''')
+        if prod_result["success"] and prod_result["data"]:
+            max_p = prod_result["data"][0]["cnt"]
+            top_agents = [r["OwnerId"] for r in prod_result["data"] if r["cnt"] == max_p]
+            if len(top_agents) == 1:
+                return top_agents[0]
+
+    # Step 4: Tiebreak by workload (fewest non-closed cases)
+    if len(top_agents) > 1:
+        best_agent = None
+        min_open = float("inf")
+        for aid in top_agents:
+            wl_result = db.execute_query(f'''
+                SELECT COUNT(*) as cnt FROM "Case"
+                WHERE OwnerId = '{aid}' AND Status != 'Closed'
+            ''')
+            open_cases = wl_result["data"][0]["cnt"] if wl_result["success"] and wl_result["data"] else 0
+            if open_cases < min_open:
+                min_open = open_cases
+                best_agent = aid
+        return best_agent
+
+    return top_agents[0] if top_agents else None
+
+
 # ── Registry ─────────────────────────────────────────────────────
 
 DETERMINISTIC_HANDLERS = {
@@ -533,6 +690,7 @@ DETERMINISTIC_HANDLERS = {
     "best_region_identification": handle_best_region,
     "transfer_count": handle_transfer_count,
     "lead_routing": handle_lead_routing,
+    "case_routing": handle_case_routing,
 }
 
 
@@ -544,7 +702,8 @@ def extract_context_date(context: str) -> str:
     return ""
 
 
-def try_deterministic(category: str, question: str, db: CRMDatabase, ref_date: str, context: str = "") -> str | None:
+async def try_deterministic(category: str, question: str, db: CRMDatabase, ref_date: str,
+                            context: str = "", llm_client=None) -> str | None:
     """Try deterministic handler for a category. Returns answer or None to fall back to LLM."""
     handler = DETERMINISTIC_HANDLERS.get(category)
     if not handler:
@@ -555,12 +714,20 @@ def try_deterministic(category: str, question: str, db: CRMDatabase, ref_date: s
     effective_ref = ctx_date or ref_date
 
     try:
-        # Some handlers need context (e.g., lead_routing for region)
+        # Build kwargs for handlers that accept optional parameters
         import inspect
-        if 'context' in inspect.signature(handler).parameters:
-            answer = handler(question, db, effective_ref, context=context)
+        sig = inspect.signature(handler)
+        kwargs = {}
+        if 'context' in sig.parameters:
+            kwargs['context'] = context
+        if 'llm_client' in sig.parameters:
+            kwargs['llm_client'] = llm_client
+        result = handler(question, db, effective_ref, **kwargs)
+        # Support both sync and async handlers
+        if inspect.isawaitable(result):
+            answer = await result
         else:
-            answer = handler(question, db, effective_ref)
+            answer = result
         if answer:
             logger.info(f"Deterministic handler for {category} returned: {answer} (ref={effective_ref})")
         else:

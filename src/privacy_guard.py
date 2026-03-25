@@ -15,6 +15,7 @@ class PrivacyGuard:
     PRIVACY_CATEGORIES = frozenset({
         "private_customer_information",
         "confidential_company_knowledge",
+        "internal_operation_data",
     })
 
     REJECTION_MESSAGE = (

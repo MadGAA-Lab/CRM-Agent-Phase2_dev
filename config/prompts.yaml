@@ -69,9 +69,13 @@ category_guides:
   sales_insight_mining: |
     ## Task: Sales Insight Mining (Transcript Analysis)
     Tables: VoiceCallTranscript__c, Opportunity
-    - Get transcript: SELECT Body__c FROM VoiceCallTranscript__c WHERE OpportunityId__c = '<id>'
-    - Analyze transcript for sentiment, competitors, topics
-    - Common subtopics: Business problems and pain points, Pricing and competitive analysis, Implementation process and support, Value propositions, Case studies and testimonials, Competing offers, Tech innovations, Security compliance, Product features, Future advancements
+    Step 1: Get ALL transcripts: SELECT Body__c FROM VoiceCallTranscript__c WHERE OpportunityId__c = '<id>'
+    Step 2: Read the transcript text carefully
+    Step 3: Extract the answer:
+      - For competitor questions: return the EXACT COMPANY NAME mentioned (e.g. "Adaptive Design Solutions", NOT a description)
+      - For topic questions: return a bracketed list of topics discussed
+      - For sentiment: return the overall sentiment
+    IMPORTANT: Return specific entity names from the transcript, NOT descriptions or summaries
 
   best_region_identification: |
     ## Task: Best Region Identification
@@ -128,46 +132,61 @@ category_guides:
   knowledge_qa: |
     ## Task: Knowledge QA
     Tables: Knowledge__kav
-    - Search: SELECT Title, FAQ_Answer__c, Summary FROM Knowledge__kav WHERE Title LIKE '%keyword%'
-    - Or: WHERE FAQ_Answer__c LIKE '%keyword%'
-    - Answer from the article content — can be a sentence
+    Step 1: Find the relevant article:
+      SELECT Id, Title, FAQ_Answer__c, Summary FROM Knowledge__kav WHERE Title LIKE '%keyword%' OR FAQ_Answer__c LIKE '%keyword%'
+    Step 2: READ the full FAQ_Answer__c and Summary content
+    Step 3: Extract the answer from the article text — respond with the relevant sentence or phrase
+    IMPORTANT: Your answer must be text FROM the article, NOT a SQL fragment or LIKE pattern
 
   quote_approval: |
     ## Task: Quote Approval / Policy Violation
     Tables: Quote, QuoteLineItem, Knowledge__kav, PricebookEntry, Product2
-    - Check quote line items against pricing policies in Knowledge__kav
-    - Compare QuoteLineItem.UnitPrice, Discount, Quantity with policy rules
-    - If violation found, return the Knowledge__kav.Id of the violated article
-    - If no violation, return None
+    Step 1: Get quote line items:
+      SELECT QLI.Product2Id, QLI.UnitPrice, QLI.Discount, QLI.Quantity, QLI.TotalPrice, P.Name
+      FROM QuoteLineItem QLI JOIN Product2 P ON QLI.Product2Id = P.Id WHERE QLI.QuoteId = '<id>'
+    Step 2: Get standard prices:
+      SELECT PE.UnitPrice FROM PricebookEntry PE WHERE PE.Product2Id = '<product_id>'
+    Step 3: Get pricing policies:
+      SELECT Id, Title, FAQ_Answer__c FROM Knowledge__kav WHERE FAQ_Answer__c LIKE '%discount%' OR FAQ_Answer__c LIKE '%price%' OR FAQ_Answer__c LIKE '%bundle%'
+    Step 4: READ each policy article and check if ANY quote line item violates it (discount limits, price floors, bundle requirements)
+    Return the Knowledge__kav.Id of the FIRST violated article, or None if compliant
 
   named_entity_disambiguation: |
     ## Task: Named Entity Disambiguation
-    Tables: Product2, OrderItem, "Order"
-    - Match product description to find the right Product2.Id
-    - May need to filter by purchase date via Order.EffectiveDate
-    - Return the Product2.Id
+    Tables: Product2, OrderItem, "Order", Account
+    Step 1: List products: SELECT Id, Name, Description FROM Product2
+    Step 2: Read the question carefully — it describes a product by features/characteristics
+    Step 3: Match the description to the correct Product2 by comparing features mentioned
+    Step 4: If date/purchase context given, verify via OrderItem + Order.EffectiveDate
+    IMPORTANT: Return the Product2.Id, NOT a description. Read ALL products to find the best match.
 
   invalid_config: |
     ## Task: Invalid Configuration Detection
     Tables: QuoteLineItem, Knowledge__kav, PricebookEntry, Product2
-    - Check if product setup in quote violates company regulations
-    - Compare quantities, prices against Knowledge__kav policy articles
-    - Return Knowledge__kav.Id of violated article, or None
+    Step 1: Get quote line items with product details
+    Step 2: Get ALL Knowledge__kav articles about product configuration, bundling, or pricing rules
+    Step 3: READ each article and check if the quote's product setup violates any rule
+      (e.g. required bundles, min/max quantities, incompatible products, price floors)
+    Return Knowledge__kav.Id of violated article, or None if no violation
 
   policy_violation_identification: |
     ## Task: Policy Violation Identification
     Tables: "Case", Knowledge__kav, LiveChatTranscript, EmailMessage
-    - Check if agent behavior violated any knowledge article policy
-    - May need to read chat/email transcripts for the case
-    - Return Knowledge__kav.Id if violation found, else None
+    Step 1: Read the case details and any chat/email transcripts
+    Step 2: Read relevant Knowledge__kav articles for policies
+    Step 3: Check if the agent's behavior violated ANY specific policy
+    IMPORTANT: Only return a Knowledge__kav.Id if there is a CLEAR, SPECIFIC violation.
+    If no clear violation is found, return None. Do NOT guess — most cases have no violation.
 
   wrong_stage_rectification: |
     ## Task: Wrong Stage Rectification
     Tables: Opportunity, Task
-    - Check if Opportunity.StageName matches the actual tasks/activities
-    - Context describes stage criteria — READ IT CAREFULLY
-    - If wrong, return the correct stage name (e.g. "Negotiation")
-    - If correct, return the current stage name
+    Step 1: Get the opportunity: SELECT Id, StageName FROM Opportunity WHERE Id = '<id>'
+    Step 2: Get tasks: SELECT Subject, Status, Description FROM Task WHERE WhatId = '<opp_id>'
+    Step 3: READ the stage criteria from the context CAREFULLY — each stage has specific conditions
+    Step 4: Match the tasks/activities against EACH stage's criteria to find the correct stage
+    Common stages: Qualification, Discovery, Quote, Negotiation, Closed Won, Closed Lost
+    IMPORTANT: The current StageName is often WRONG. Check each stage's criteria and return the one that matches the actual tasks.
 
   activity_priority: |
     ## Task: Activity Priority
