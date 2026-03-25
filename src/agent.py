@@ -28,6 +28,7 @@ from privacy_guard import PrivacyGuard
 from llm_client import LLMClient
 from time_budget import TimeBudget
 from deterministic_handlers import try_deterministic
+from data_prefetch import DataPrefetcher
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class Agent:
         self.canonical_schema = load_canonical_schema()
         self.introspector = SchemaIntrospector(self.canonical_schema)
         self.context_filter = ContextFilter()
+        self.prefetcher = DataPrefetcher(db) if db else None
         self.max_turns = int(os.getenv("MAX_TURNS", "8"))
         self.metrics = {
             "tokens": 0,
@@ -206,6 +208,12 @@ class Agent:
         )
         if ref_date:
             system_msg += f"\n\n## IMPORTANT: Database reference date\nThe most recent data is from {ref_date}. Use this as 'today' for all date calculations. Example: 'past 4 quarters' = date('{ref_date}', '-12 months')."
+
+        # Inject pre-fetched data for knowledge-dependent categories
+        if self.prefetcher:
+            prefetch_data = self.prefetcher.augment_prompt(category, task)
+            if prefetch_data:
+                system_msg += f"\n\n{prefetch_data}"
 
         user_content = f"Question: {task.get('prompt', '')}"
         if task.get("persona"):
