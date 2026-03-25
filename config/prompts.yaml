@@ -206,6 +206,78 @@ category_guides:
     ## General CRM Task
     Use <describe> to explore table schemas before querying.
 
+# ── Pre-fetched data prompts (injected per-category) ─────────
+# {products} = all Product2 entries, {knowledge_index} = Knowledge__kav titles+summaries
+# These are populated at runtime by DataPrefetcher
+
+prefetch_prompts:
+  named_entity_disambiguation: |
+    ## Available Products (full catalog)
+    {products}
+
+    Match the description in the question to the correct product above.
+    <respond> with the Product2 Id </respond>
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
+  knowledge_qa: |
+    ## Knowledge Article Index
+    {knowledge_index}
+
+    Step 1: Find the most relevant article from the index above.
+    Step 2: <execute> SELECT FAQ_Answer__c FROM Knowledge__kav WHERE Id = 'article_id' </execute>
+    Step 3: Read the content and <respond> with the answer from the article </respond>
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
+  policy_violation_identification: |
+    ## Knowledge Article Index
+    {knowledge_index}
+
+    Most cases have NO violation (77% are None). Only report a violation if you find CLEAR evidence.
+    Step 1: Read the case details via <execute> SQL </execute>
+    Step 2: Check transcripts/emails for the case
+    Step 3: If a specific policy was breached, <respond> Knowledge__kav Id </respond>. Otherwise <respond> None </respond>
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
+  invalid_config: |
+    ## Knowledge Article Index
+    {knowledge_index}
+
+    Step 1: <execute> SELECT QLI.*, P.Name FROM QuoteLineItem QLI JOIN Product2 P ON QLI.Product2Id = P.Id WHERE QLI.QuoteId = 'QUOTE_ID' </execute>
+    Step 2: Check prices/quantities against relevant policy articles above
+    Step 3: If needed, read full article: <execute> SELECT FAQ_Answer__c FROM Knowledge__kav WHERE Id = 'article_id' </execute>
+    Step 4: <respond> Knowledge__kav Id if violated, or None </respond>
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
+  quote_approval: |
+    ## Knowledge Article Index
+    {knowledge_index}
+
+    Step 1: <execute> SELECT QLI.*, P.Name FROM QuoteLineItem QLI JOIN Product2 P ON QLI.Product2Id = P.Id WHERE QLI.QuoteId = 'QUOTE_ID' </execute>
+    Step 2: Check prices/quantities against relevant policy articles above
+    Step 3: If needed, read full article: <execute> SELECT FAQ_Answer__c FROM Knowledge__kav WHERE Id = 'article_id' </execute>
+    Step 4: <respond> Knowledge__kav Id if violated, or None </respond>
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
+  lead_qualification: |
+    ## BANT Framework
+    - Budget: Does the lead have budget allocated?
+    - Authority: Is the lead a decision-maker?
+    - Need: Does the lead have an identified business need?
+    - Timeline: Does the lead have a defined timeline?
+
+    Step 1: <execute> SELECT Body__c FROM VoiceCallTranscript__c WHERE ... </execute> to get the transcript
+    Step 2: Analyze which BANT factor is MISSING or weakest
+    Step 3: <respond> the missing factor (Budget/Authority/Need/Timeline) </respond>
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
+  wrong_stage_rectification: |
+    ## Stage Matching
+    Step 1: <execute> SELECT Id, StageName FROM Opportunity WHERE Id = 'OPP_ID' </execute>
+    Step 2: <execute> SELECT Subject, Status, Description FROM Task WHERE WhatId = 'OPP_ID' </execute>
+    Step 3: READ the stage criteria from context. Match tasks to the CORRECT stage.
+    Step 4: <respond> correct stage name </respond> (often different from current stage)
+    Remember: use <execute> SQL </execute> to query, <respond> answer </respond> for final answer.
+
 # ── Privacy / Drift ──────────────────────────────────────────
 
 privacy_rejection: |
