@@ -662,20 +662,20 @@ async def handle_case_routing(question: str, db: CRMDatabase, ref_date: str,
             if len(top_agents) == 1:
                 return top_agents[0]
 
-    # Step 4: Tiebreak by workload (fewest non-closed cases)
+    # Step 4: Tiebreak by workload
+    # Prefer agents with some active workload (not idle), then fewest non-closed
     if len(top_agents) > 1:
-        best_agent = None
-        min_open = float("inf")
+        agent_workloads = []
         for aid in top_agents:
-            wl_result = db.execute_query(f'''
+            nc_result = db.execute_query(f'''
                 SELECT COUNT(*) as cnt FROM "Case"
                 WHERE OwnerId = '{aid}' AND Status != 'Closed'
             ''')
-            open_cases = wl_result["data"][0]["cnt"] if wl_result["success"] and wl_result["data"] else 0
-            if open_cases < min_open:
-                min_open = open_cases
-                best_agent = aid
-        return best_agent
+            not_closed = nc_result["data"][0]["cnt"] if nc_result["success"] and nc_result["data"] else 0
+            agent_workloads.append((aid, not_closed))
+        # Sort: prefer active agents (nc>0) over idle (nc=0), then fewest non-closed
+        agent_workloads.sort(key=lambda x: (0 if x[1] > 0 else 1, x[1]))
+        return agent_workloads[0][0]
 
     return top_agents[0] if top_agents else None
 
